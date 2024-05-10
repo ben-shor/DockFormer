@@ -18,7 +18,7 @@ import time
 import dllogger as logger
 from dllogger import JSONStreamBackend, StdOutBackend, Verbosity
 import numpy as np
-from pytorch_lightning import Callback
+from lightning import Callback
 import torch.cuda.profiler as profiler
 
 
@@ -42,10 +42,10 @@ class PerformanceLoggingCallback(Callback):
         if self.step > self.warmup_steps:
             self.timestamps.append(time.time())
 
-    def on_train_batch_start(self, trainer, pl_module, batch, batch_idx, dataloader_idx):
+    def on_train_batch_start(self, trainer, pl_module, batch, batch_idx):
         self.do_step()
 
-    def on_test_batch_start(self, trainer, pl_module, batch, batch_idx, dataloader_idx):
+    def on_test_batch_start(self, trainer, pl_module, batch, batch_idx, dataloader_idx: int = 0):
         self.do_step()
 
     def process_performance_stats(self, deltas):

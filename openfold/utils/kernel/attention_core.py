@@ -17,7 +17,11 @@ from operator import mul
 
 import torch
 
-attn_core_inplace_cuda = importlib.import_module("attn_core_inplace_cuda")
+# TODO bshor: solve attn_core_is_installed in mac
+attn_core_is_installed = importlib.util.find_spec("attn_core_inplace_cuda") is not None
+attn_core_inplace_cuda = None
+if attn_core_is_installed:
+    attn_core_inplace_cuda = importlib.import_module("attn_core_inplace_cuda")
 
 
 SUPPORTED_DTYPES = [torch.float32, torch.bfloat16]

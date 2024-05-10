@@ -18,46 +18,21 @@ import weakref
 import torch
 import torch.nn as nn
 
-from openfold.data import data_transforms_multimer
-from openfold.utils.feats import (
-    pseudo_beta_fn,
-    build_extra_msa_feat,
-    dgram_from_positions,
-    atom14_to_atom37,
-)
 from openfold.utils.tensor_utils import masked_mean
 from openfold.model.embedders import (
-    InputEmbedder,
-    InputEmbedderMultimer,
+    StructureInputEmbedder,
     RecyclingEmbedder,
-    TemplateEmbedder,
-    TemplateEmbedderMultimer,
-    ExtraMSAEmbedder,
-    PreembeddingEmbedder,
 )
-from openfold.model.evoformer import EvoformerStack, ExtraMSAStack
+from openfold.model.evoformer import EvoformerStack
 from openfold.model.heads import AuxiliaryHeads
 from openfold.model.structure_module import StructureModule
-from openfold.model.template import (
-    TemplatePairStack,
-    TemplatePointwiseAttention,
-    embed_templates_average,
-    embed_templates_offload,
-)
 import openfold.np.residue_constants as residue_constants
 from openfold.utils.feats import (
     pseudo_beta_fn,
-    build_extra_msa_feat,
-    build_template_angle_feat,
-    build_template_pair_feat,
     atom14_to_atom37,
-)
-from openfold.utils.loss import (
-    compute_plddt,
 )
 from openfold.utils.tensor_utils import (
     add,
-    dict_multimap,
     tensor_tree_map,
 )
 
@@ -79,104 +54,26 @@ class AlphaFold(nn.Module):
 
         self.globals = config.globals
         self.config = config.model
-        self.template_config = self.config.template
-        self.extra_msa_config = self.config.extra_msa
-        self.seqemb_mode = config.globals.seqemb_mode_enabled
 
         # Main trunk + structure module
-        if self.globals.is_multimer:
-            self.input_embedder = InputEmbedderMultimer(
-                **self.config["input_embedder"]
-            )
-        elif self.seqemb_mode:
-            # If using seqemb mode, embed the sequence embeddings passed
-            # to the model ("preembeddings") instead of embedding the sequence
-            self.input_embedder = PreembeddingEmbedder(
-                **self.config["preembedding_embedder"],
-            )
-        else:
-            self.input_embedder = InputEmbedder(
-                **self.config["input_embedder"],
-            )
+        self.input_embedder = StructureInputEmbedder(
+            **self.config["structure_input_embedder"],
+        )
 
         self.recycling_embedder = RecyclingEmbedder(
             **self.config["recycling_embedder"],
         )
-
-        if self.template_config.enabled:
-            if self.globals.is_multimer:
-                self.template_embedder = TemplateEmbedderMultimer(
-                    self.template_config,
-                )
-            else:
-                self.template_embedder = TemplateEmbedder(
-                    self.template_config,
-                )
-
-        if self.extra_msa_config.enabled:
-            self.extra_msa_embedder = ExtraMSAEmbedder(
-                **self.extra_msa_config["extra_msa_embedder"],
-            )
-            self.extra_msa_stack = ExtraMSAStack(
-                **self.extra_msa_config["extra_msa_stack"],
-            )
 
         self.evoformer = EvoformerStack(
             **self.config["evoformer_stack"],
         )
 
         self.structure_module = StructureModule(
-            is_multimer=self.globals.is_multimer,
             **self.config["structure_module"],
         )
         self.aux_heads = AuxiliaryHeads(
             self.config["heads"],
         )
-
-    def embed_templates(self, batch, feats, z, pair_mask, templ_dim, inplace_safe):
-        if self.globals.is_multimer:
-            asym_id = feats["asym_id"]
-            multichain_mask_2d = (
-                asym_id[..., None] == asym_id[..., None, :]
-            )
-            template_embeds = self.template_embedder(
-                batch,
-                z,
-                pair_mask.to(dtype=z.dtype),
-                templ_dim,
-                chunk_size=self.globals.chunk_size,
-                multichain_mask_2d=multichain_mask_2d,
-                use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention,
-                use_lma=self.globals.use_lma,
-                inplace_safe=inplace_safe,
-                _mask_trans=self.config._mask_trans
-            )
-            feats["template_torsion_angles_mask"] = (
-                template_embeds["template_mask"]
-            )
-        else:
-            if self.template_config.offload_templates:
-                return embed_templates_offload(self,
-                                               batch, z, pair_mask, templ_dim, inplace_safe=inplace_safe,
-                                               )
-            elif self.template_config.average_templates:
-                return embed_templates_average(self,
-                                               batch, z, pair_mask, templ_dim, inplace_safe=inplace_safe,
-                                               )
-
-            template_embeds = self.template_embedder(
-                batch,
-                z,
-                pair_mask.to(dtype=z.dtype),
-                templ_dim,
-                chunk_size=self.globals.chunk_size,
-                use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention,
-                use_lma=self.globals.use_lma,
-                inplace_safe=inplace_safe,
-                _mask_trans=self.config._mask_trans
-            )
-
-        return template_embeds
 
     def tolerance_reached(self, prev_pos, next_pos, mask, eps=1e-8) -> bool:
         """
@@ -220,42 +117,31 @@ class AlphaFold(nn.Module):
         batch_dims = feats["target_feat"].shape[:-2]
         no_batch_dims = len(batch_dims)
         n = feats["target_feat"].shape[-2]
-        n_seq = feats["msa_feat"].shape[-3]
+        # n_seq = feats["msa_feat"].shape[-3]
+        n_seq = 1
         device = feats["target_feat"].device
 
         # Controls whether the model uses in-place operations throughout
         # The dual condition accounts for activation checkpoints
-        inplace_safe = not (self.training or torch.is_grad_enabled())
+        # inplace_safe = not (self.training or torch.is_grad_enabled())
+        inplace_safe = False # so we don't need attn_core_inplace_cuda
 
         # Prep some features
         seq_mask = feats["seq_mask"]
         pair_mask = seq_mask[..., None] * seq_mask[..., None, :]
         msa_mask = feats["msa_mask"]
 
-        if self.globals.is_multimer:
-            # Initialize the MSA and pair representations
-            # m: [*, S_c, N, C_m]
-            # z: [*, N, N, C_z]
-            m, z = self.input_embedder(feats)
-        elif self.seqemb_mode:
-            # Initialize the SingleSeq and pair representations
-            # m: [*, 1, N, C_m]
-            # z: [*, N, N, C_z]
-            m, z = self.input_embedder(
-                feats["target_feat"],
-                feats["residue_index"],
-                feats["seq_embedding"]
-            )
-        else:
-            # Initialize the MSA and pair representations
-            # m: [*, S_c, N, C_m]
-            # z: [*, N, N, C_z]
-            m, z = self.input_embedder(
-                feats["target_feat"],
-                feats["residue_index"],
-                feats["msa_feat"],
-                inplace_safe=inplace_safe,
-            )
+
+        # TODO bshor: rewrite input_embedder to use structures and change it over here
+        # Initialize the MSA and pair representations
+        # m: [*, S_c, N, C_m]
+        # z: [*, N, N, C_z]
+        m, z = self.input_embedder(
+            feats["target_feat"],
+            feats["residue_index"],
+            feats["input_pseudo_beta"],
+            inplace_safe=inplace_safe,
+        )
 
         # Unpack the recycling embeddings. Removing them from the list allows 
         # them to be freed further down in this function, saving memory
@@ -315,91 +201,6 @@ class AlphaFold(nn.Module):
         # where they free unused tensors and remove references to others such
         # that they can be offloaded later
         del m_1_prev, z_prev, m_1_prev_emb, z_prev_emb
-
-        # Embed the templates + merge with MSA/pair embeddings
-        if self.config.template.enabled:
-            template_feats = {
-                k: v for k, v in feats.items() if k.startswith("template_")
-            }
-
-            template_embeds = self.embed_templates(
-                template_feats,
-                feats,
-                z,
-                pair_mask.to(dtype=z.dtype),
-                no_batch_dims,
-                inplace_safe=inplace_safe,
-            )
-
-            # [*, N, N, C_z]
-            z = add(z,
-                    template_embeds.pop("template_pair_embedding"),
-                    inplace_safe,
-                    )
-
-            if (
-                "template_single_embedding" in template_embeds
-            ):
-                # [*, S = S_c + S_t, N, C_m]
-                m = torch.cat(
-                    [m, template_embeds["template_single_embedding"]],
-                    dim=-3
-                )
-
-                # [*, S, N]
-                if not self.globals.is_multimer:
-                    torsion_angles_mask = feats["template_torsion_angles_mask"]
-                    msa_mask = torch.cat(
-                        [feats["msa_mask"], torsion_angles_mask[..., 2]],
-                        dim=-2
-                    )
-                else:
-                    msa_mask = torch.cat(
-                        [feats["msa_mask"], template_embeds["template_mask"]],
-                        dim=-2,
-                    )
-
-        # Embed extra MSA features + merge with pairwise embeddings
-        if self.config.extra_msa.enabled:
-            if self.globals.is_multimer:
-                extra_msa_fn = data_transforms_multimer.build_extra_msa_feat
-            else:
-                extra_msa_fn = build_extra_msa_feat
-
-            # [*, S_e, N, C_e]
-            extra_msa_feat = extra_msa_fn(feats).to(dtype=z.dtype)
-            a = self.extra_msa_embedder(extra_msa_feat)
-
-            if self.globals.offload_inference:
-                # To allow the extra MSA stack (and later the evoformer) to
-                # offload its inputs, we remove all references to them here
-                input_tensors = [a, z]
-                del a, z
-
-                # [*, N, N, C_z]
-                z = self.extra_msa_stack._forward_offload(
-                    input_tensors,
-                    msa_mask=feats["extra_msa_mask"].to(dtype=m.dtype),
-                    chunk_size=self.globals.chunk_size,
-                    use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention,
-                    use_lma=self.globals.use_lma,
-                    pair_mask=pair_mask.to(dtype=m.dtype),
-                    _mask_trans=self.config._mask_trans,
-                )
-
-                del input_tensors
-            else:
-                # [*, N, N, C_z]
-                z = self.extra_msa_stack(
-                    a, z,
-                    msa_mask=feats["extra_msa_mask"].to(dtype=m.dtype),
-                    chunk_size=self.globals.chunk_size,
-                    use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention,
-                    use_lma=self.globals.use_lma,
-                    pair_mask=pair_mask.to(dtype=m.dtype),
-                    inplace_safe=inplace_safe,
-                    _mask_trans=self.config._mask_trans,
-                )
 
         # Run MSA + pair embeddings through the trunk of the network
         # m: [*, S, N, C_m]
@@ -461,9 +262,10 @@ class AlphaFold(nn.Module):
         # [*, N, N, C_z]
         z_prev = outputs["pair"]
 
+        # TODO bshor: early stop depends on is_multimer, but I don't think it must
         early_stop = False
-        if self.globals.is_multimer:
-            early_stop = self.tolerance_reached(x_prev, outputs["final_atom_positions"], seq_mask)
+        # if self.globals.is_multimer:
+        #     early_stop = self.tolerance_reached(x_prev, outputs["final_atom_positions"], seq_mask)
 
         del x_prev
 
@@ -581,9 +383,6 @@ class AlphaFold(nn.Module):
                     break
 
         outputs["num_recycles"] = torch.tensor(num_recycles, device=feats["aatype"].device)
-
-        if "asym_id" in batch:
-            outputs["asym_id"] = feats["asym_id"]
 
         # Run auxiliary heads
         outputs.update(self.aux_heads(outputs))

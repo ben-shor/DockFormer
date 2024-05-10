@@ -20,7 +20,7 @@ import ml_collections
 import numpy as np
 import torch
 
-from openfold.data import input_pipeline, input_pipeline_multimer
+from openfold.data import input_pipeline
 
 
 FeatureDict = Mapping[str, np.ndarray]
@@ -80,36 +80,23 @@ def np_example_to_features(
     np_example: FeatureDict,
     config: ml_collections.ConfigDict,
     mode: str,
-    is_multimer: bool = False
 ):
     np_example = dict(np_example)
 
     seq_length = np_example["seq_length"]
     num_res = int(seq_length[0]) if seq_length.ndim != 0 else int(seq_length)
     cfg, feature_names = make_data_config(config, mode=mode, num_res=num_res)
- 
-    if "deletion_matrix_int" in np_example:
-        np_example["deletion_matrix"] = np_example.pop(
-            "deletion_matrix_int"
-        ).astype(np.float32)
 
     tensor_dict = np_to_tensor_dict(
         np_example=np_example, features=feature_names
     )
 
     with torch.no_grad():
-        if is_multimer:
-            features = input_pipeline_multimer.process_tensors_from_config(
-                tensor_dict,
-                cfg.common,
-                cfg[mode],
-            )
-        else:
-            features = input_pipeline.process_tensors_from_config(
-                tensor_dict,
-                cfg.common,
-                cfg[mode],
-            )
+        features = input_pipeline.process_tensors_from_config(
+            tensor_dict,
+            cfg.common,
+            cfg[mode],
+        )
 
     if mode == "train":
         p = torch.rand(1).item()
@@ -140,7 +127,6 @@ class FeaturePipeline:
         self,
         raw_features: FeatureDict,
         mode: str = "train",
-        is_multimer: bool = False,
     ) -> FeatureDict:
         # if(is_multimer and mode != "predict"):
         #     raise ValueError("Multimer mode is not currently trainable")
@@ -149,5 +135,4 @@ class FeaturePipeline:
             np_example=raw_features,
             config=self.config,
             mode=mode,
-            is_multimer=is_multimer,
         )

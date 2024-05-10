@@ -3,16 +3,14 @@ import logging
 import os
 import sys
 
-import pytorch_lightning as pl
-from pytorch_lightning.callbacks.lr_monitor import LearningRateMonitor
-from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
-from pytorch_lightning.loggers import WandbLogger
-from pytorch_lightning.plugins.training_type import DeepSpeedPlugin, DDPPlugin
-from pytorch_lightning.utilities.seed import seed_everything
+from lightning.pytorch import seed_everything
+import lightning.pytorch as pl
 import torch
+from lightning.pytorch.callbacks import LearningRateMonitor
+from lightning.pytorch.loggers import CSVLogger
 
 from openfold.config import model_config
-from openfold.data.data_modules import OpenFoldDataModule, OpenFoldMultimerDataModule
+from openfold.data.data_modules import OpenFoldDataModule
 from openfold.model.model import AlphaFold
 from openfold.model.torchscript import script_preset_
 from openfold.np import residue_constants
@@ -23,7 +21,6 @@ from openfold.utils.callbacks import (
 from openfold.utils.exponential_moving_average import ExponentialMovingAverage
 from openfold.utils.loss import AlphaFoldLoss, lddt_ca
 from openfold.utils.lr_schedulers import AlphaFoldLRScheduler
-from openfold.utils.multi_chain_permutation import multi_chain_permutation_align
 from openfold.utils.superimposition import superimpose
 from openfold.utils.tensor_utils import tensor_tree_map
 from openfold.utils.validation_metrics import (
@@ -35,10 +32,10 @@ from openfold.utils.import_weights import (
     import_jax_weights_,
     import_openfold_weights_
 )
-from scripts.zero_to_fp32 import (
-    get_fp32_state_dict_from_zero_checkpoint,
-    get_global_step_from_zero_checkpoint
-)
+# from scripts.zero_to_fp32 import (
+#     get_fp32_state_dict_from_zero_checkpoint,
+#     get_global_step_from_zero_checkpoint
+# )
 
 from openfold.utils.logger import PerformanceLoggingCallback
 
@@ -48,7 +45,6 @@ class OpenFoldWrapper(pl.LightningModule):
         super(OpenFoldWrapper, self).__init__()
         self.config = config
         self.model = AlphaFold(config)
-        self.is_multimer = self.config.globals.is_multimer
 
         self.loss = AlphaFoldLoss(config.loss)
 
@@ -96,18 +92,13 @@ class OpenFoldWrapper(pl.LightningModule):
         if(self.ema.device != batch["aatype"].device):
             self.ema.to(batch["aatype"].device)
 
-        ground_truth = batch.pop('gt_features', None)
+        # ground_truth = batch.pop('gt_features', None)
 
         # Run the model
         outputs = self(batch)
 
         # Remove the recycling dimension
         batch = tensor_tree_map(lambda t: t[..., -1], batch)
-
-        if self.is_multimer:
-            batch = multi_chain_permutation_align(out=outputs,
-                                                  features=batch,
-                                                  ground_truth=ground_truth)
 
         # Compute loss
         loss, loss_breakdown = self.loss(
@@ -132,18 +123,11 @@ class OpenFoldWrapper(pl.LightningModule):
             self.cached_weights = tensor_tree_map(clone_param, self.model.state_dict())
             self.model.load_state_dict(self.ema.state_dict()["params"])
 
-        ground_truth = batch.pop('gt_features', None)
-
         # Run the model
         outputs = self(batch)
         batch = tensor_tree_map(lambda t: t[..., -1], batch)
 
         batch["use_clamped_fape"] = 0.
-
-        if self.is_multimer:
-            batch = multi_chain_permutation_align(out=outputs,
-                                                  features=batch,
-                                                  ground_truth=ground_truth)
 
         # Compute loss and other metrics
         _, loss_breakdown = self.loss(
@@ -152,7 +136,7 @@ class OpenFoldWrapper(pl.LightningModule):
 
         self._log(loss_breakdown, batch, outputs, train=False)
         
-    def validation_epoch_end(self, _):
+    def on_validation_epoch_end(self):
         # Restore the model weights to normal
         self.model.load_state_dict(self.cached_weights)
         self.cached_weights = None
@@ -270,137 +254,197 @@ class OpenFoldWrapper(pl.LightningModule):
         )
 
 
-def main(args):
-    if(args.seed is not None):
-        seed_everything(args.seed, workers=True) 
+# def main(args):
+#     if(args.seed is not None):
+#         seed_everything(args.seed, workers=True)
+#
+#     config = model_config(
+#         args.config_preset,
+#         train=True,
+#         low_prec=(str(args.precision) == "16")
+#     )
+#     model_module = OpenFoldWrapper(config)
+#
+#     if(args.resume_from_ckpt):
+#         if(os.path.isdir(args.resume_from_ckpt)):
+#             last_global_step = get_global_step_from_zero_checkpoint(args.resume_from_ckpt)
+#         else:
+#             sd = torch.load(args.resume_from_ckpt)
+#             last_global_step = int(sd['global_step'])
+#         model_module.resume_last_lr_step(last_global_step)
+#         logging.info("Successfully loaded last lr step...")
+#     if(args.resume_from_ckpt and args.resume_model_weights_only):
+#         if(os.path.isdir(args.resume_from_ckpt)):
+#             sd = get_fp32_state_dict_from_zero_checkpoint(args.resume_from_ckpt)
+#         else:
+#             sd = torch.load(args.resume_from_ckpt)
+#         sd = {k[len("module."):]:v for k,v in sd.items()}
+#         import_openfold_weights_(model=model_module, state_dict=sd)
+#         logging.info("Successfully loaded model weights...")
+#     if(args.resume_from_jax_params):
+#         model_module.load_from_jax(args.resume_from_jax_params)
+#         logging.info(f"Successfully loaded JAX parameters at {args.resume_from_jax_params}...")
+#
+#     # TorchScript components of the model
+#     if(args.script_modules):
+#         script_preset_(model_module)
+#
+#     data_module = OpenFoldDataModule(
+#         config=config.data,
+#         batch_seed=args.seed,
+#         **vars(args)
+#     )
+#
+#     data_module.prepare_data()
+#     data_module.setup()
+#
+#     callbacks = []
+#     if(args.checkpoint_every_epoch):
+#         mc = ModelCheckpoint(
+#             every_n_epochs=1,
+#             auto_insert_metric_name=False,
+#             save_top_k=-1,
+#         )
+#         callbacks.append(mc)
+#
+#     if(args.early_stopping):
+#         es = EarlyStoppingVerbose(
+#             monitor="val/lddt_ca",
+#             min_delta=args.min_delta,
+#             patience=args.patience,
+#             verbose=False,
+#             mode="max",
+#             check_finite=True,
+#             strict=True,
+#         )
+#         callbacks.append(es)
+#
+#     if(args.log_performance):
+#         global_batch_size = args.num_nodes * args.gpus
+#         perf = PerformanceLoggingCallback(
+#             log_file=os.path.join(args.output_dir, "performance_log.json"),
+#             global_batch_size=global_batch_size,
+#         )
+#         callbacks.append(perf)
+#
+#     if(args.log_lr):
+#         lr_monitor = LearningRateMonitor(logging_interval="step")
+#         callbacks.append(lr_monitor)
+#
+#     loggers = []
+#
+#     # TODO bshor: this is a tmp logger
+#
+#
+#     if(args.wandb):
+#         wdb_logger = WandbLogger(
+#             name=args.experiment_name,
+#             save_dir=args.output_dir,
+#             id=args.wandb_id,
+#             project=args.wandb_project,
+#             **{"entity": args.wandb_entity}
+#         )
+#         loggers.append(wdb_logger)
+#
+#     if(args.deepspeed_config_path is not None):
+#         strategy = DeepSpeedPlugin(
+#             config=args.deepspeed_config_path,
+#         )
+#         if(args.wandb):
+#             wdb_logger.experiment.save(args.deepspeed_config_path)
+#             wdb_logger.experiment.save("openfold/config.py")
+#     elif (args.gpus is not None and args.gpus > 1) or args.num_nodes > 1:
+#         strategy = DDPPlugin(find_unused_parameters=False)
+#     else:
+#         strategy = None
+#
+#     if(args.wandb):
+#         freeze_path = f"{wdb_logger.experiment.dir}/package_versions.txt"
+#         os.system(f"{sys.executable} -m pip freeze > {freeze_path}")
+#         wdb_logger.experiment.save(f"{freeze_path}")
+#
+#     trainer = pl.Trainer.from_argparse_args(
+#         args,
+#         default_root_dir=args.output_dir,
+#         strategy=strategy,
+#         callbacks=callbacks,
+#         logger=loggers,
+#     )
+#
+#     if(args.resume_model_weights_only):
+#         ckpt_path = None
+#     else:
+#         ckpt_path = args.resume_from_ckpt
+#
+#     trainer.fit(
+#         model_module,
+#         datamodule=data_module,
+#         ckpt_path=ckpt_path,
+#     )
+#
+
+def manual_main():
+    seed = 42
+    seed_everything(seed, workers=True)
+    output_dir = "/Users/benshor/Documents/Data/202401_pred_affinity/train_202405"
 
     config = model_config(
-        args.config_preset, 
-        train=True, 
-        low_prec=(str(args.precision) == "16")
-    ) 
+        "initial_training",
+        train=True,
+        low_prec=True
+    )
+
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device_name = "cuda" if torch.cuda.is_available() else "cpu"
     model_module = OpenFoldWrapper(config)
 
-    if(args.resume_from_ckpt):
-        if(os.path.isdir(args.resume_from_ckpt)):  
-            last_global_step = get_global_step_from_zero_checkpoint(args.resume_from_ckpt)
-        else:
-            sd = torch.load(args.resume_from_ckpt)
-            last_global_step = int(sd['global_step'])
-        model_module.resume_last_lr_step(last_global_step)
-        logging.info("Successfully loaded last lr step...")
-    if(args.resume_from_ckpt and args.resume_model_weights_only):
-        if(os.path.isdir(args.resume_from_ckpt)):
-            sd = get_fp32_state_dict_from_zero_checkpoint(args.resume_from_ckpt)
-        else:
-            sd = torch.load(args.resume_from_ckpt)
-        sd = {k[len("module."):]:v for k,v in sd.items()}
-        import_openfold_weights_(model=model_module, state_dict=sd)
-        logging.info("Successfully loaded model weights...")
-    if(args.resume_from_jax_params):
-        model_module.load_from_jax(args.resume_from_jax_params)
-        logging.info(f"Successfully loaded JAX parameters at {args.resume_from_jax_params}...")
- 
     # TorchScript components of the model
-    if(args.script_modules):
-        script_preset_(model_module)
+    # script_preset_(model_module)
 
-    if "multimer" in args.config_preset:
-        data_module = OpenFoldMultimerDataModule(
-        config=config.data, 
-        batch_seed=args.seed,
-        **vars(args)
+    data_module = OpenFoldDataModule(
+        config=config.data,
+        batch_seed=seed,
+        train_data_dir="/Users/benshor/Documents/Data/202401_pred_affinity/sample_input_folders/json",
+        val_data_dir="/Users/benshor/Documents/Data/202401_pred_affinity/sample_input_folders/json",
+        train_epoch_len=100,
     )
-    else:
-        data_module = OpenFoldDataModule(
-            config=config.data, 
-            batch_seed=args.seed,
-            **vars(args)
-        )
 
     data_module.prepare_data()
-    data_module.setup()
-    
+    data_module.setup("fit")
+
     callbacks = []
-    if(args.checkpoint_every_epoch):
-        mc = ModelCheckpoint(
-            every_n_epochs=1,
-            auto_insert_metric_name=False,
-            save_top_k=-1,
-        )
-        callbacks.append(mc)
 
-    if(args.early_stopping):
-        es = EarlyStoppingVerbose(
-            monitor="val/lddt_ca",
-            min_delta=args.min_delta,
-            patience=args.patience,
-            verbose=False,
-            mode="max",
-            check_finite=True,
-            strict=True,
-        )
-        callbacks.append(es)
-
-    if(args.log_performance):
-        global_batch_size = args.num_nodes * args.gpus
+    if True: # (args.log_performance):
+        # global_batch_size = args.num_nodes * args.gpus
         perf = PerformanceLoggingCallback(
-            log_file=os.path.join(args.output_dir, "performance_log.json"),
-            global_batch_size=global_batch_size,
+            log_file=os.path.join(output_dir, "performance_log.json"),
+            global_batch_size=1,
         )
         callbacks.append(perf)
 
-    if(args.log_lr):
+    if True: # (args.log_lr):
         lr_monitor = LearningRateMonitor(logging_interval="step")
         callbacks.append(lr_monitor)
 
     loggers = []
-    if(args.wandb):
-        wdb_logger = WandbLogger(
-            name=args.experiment_name,
-            save_dir=args.output_dir,
-            id=args.wandb_id,
-            project=args.wandb_project,
-            **{"entity": args.wandb_entity}
-        )
-        loggers.append(wdb_logger)
+    csv_logger = CSVLogger("logs", name="evodocker_try1", flush_logs_every_n_steps=1)
+    loggers.append(csv_logger)
 
-    if(args.deepspeed_config_path is not None):
-        strategy = DeepSpeedPlugin(
-            config=args.deepspeed_config_path,
-        )
-        if(args.wandb):
-            wdb_logger.experiment.save(args.deepspeed_config_path)
-            wdb_logger.experiment.save("openfold/config.py")
-    elif (args.gpus is not None and args.gpus > 1) or args.num_nodes > 1:
-        strategy = DDPPlugin(find_unused_parameters=False)
-    else:
-        strategy = None
- 
-    if(args.wandb):
-        freeze_path = f"{wdb_logger.experiment.dir}/package_versions.txt"
-        os.system(f"{sys.executable} -m pip freeze > {freeze_path}")
-        wdb_logger.experiment.save(f"{freeze_path}")
-
-    trainer = pl.Trainer.from_argparse_args(
-        args,
-        default_root_dir=args.output_dir,
-        strategy=strategy,
+    trainer = pl.Trainer(
+        accelerator=device_name,
+        default_root_dir=output_dir,
+        strategy="auto",
         callbacks=callbacks,
         logger=loggers,
     )
 
-    if(args.resume_model_weights_only):
-        ckpt_path = None
-    else:
-        ckpt_path = args.resume_from_ckpt
+    ckpt_path = None
 
     trainer.fit(
-        model_module, 
+        model_module,
         datamodule=data_module,
         ckpt_path=ckpt_path,
     )
-
 
 def bool_type(bool_str: str):
     bool_str_lower = bool_str.lower()
@@ -414,6 +458,10 @@ def bool_type(bool_str: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    manual_main()
+    exit()
+
+
     parser.add_argument(
         "train_data_dir", type=str,
         help="Directory containing training mmCIF files"

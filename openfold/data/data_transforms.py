@@ -33,16 +33,6 @@ from openfold.utils.tensor_utils import (
 )
 
 
-MSA_FEATURE_NAMES = [
-    "msa",
-    "deletion_matrix",
-    "msa_mask",
-    "msa_row_mask",
-    "bert_mask",
-    "true_msa",
-]
-
-
 def cast_to_64bit_ints(protein):
     # We keep all ints as int64
     for k, v in protein.items():
@@ -101,31 +91,6 @@ def fix_templates_aatype(protein):
         new_order, 1, index=protein["template_aatype"]
     )
 
-    return protein
-
-
-def correct_msa_restypes(protein):
-    """Correct MSA restype to have the same order as rc."""
-    new_order_list = rc.MAP_HHBLITS_AATYPE_TO_OUR_AATYPE
-    new_order = torch.tensor(
-        [new_order_list] * protein["msa"].shape[1], 
-        device=protein["msa"].device,
-    ).transpose(0, 1)
-    protein["msa"] = torch.gather(new_order, 0, protein["msa"])
-
-    perm_matrix = np.zeros((22, 22), dtype=np.float32)
-    perm_matrix[range(len(new_order_list)), new_order_list] = 1.0
-
-    for k in protein:
-        if "profile" in k:
-            num_dim = protein[k].shape.as_list()[-1]
-            assert num_dim in [
-                20,
-                21,
-                22,
-            ], "num_dim for %s out of expected range: %s" % (k, num_dim)
-            protein[k] = torch.dot(protein[k], perm_matrix[:num_dim, :num_dim])
-    
     return protein
 
 
@@ -589,6 +554,34 @@ def make_msa_feat(protein):
     protein["msa_feat"] = torch.cat(msa_feat, dim=-1)
     protein["target_feat"] = torch.cat(target_feat, dim=-1)
     return protein
+
+@curry1
+def make_target_feat(protein):
+    """Create and concatenate MSA features."""
+    # Whether there is a domain break. Always zero for chains, but keeping for
+    # compatibility with domain datasets.
+    has_break = torch.clip(
+        protein["between_segment_residues"].to(torch.float32), 0, 1
+    )
+    aatype_1hot = make_one_hot(protein["aatype"], 21)
+
+    target_feat = [
+        torch.unsqueeze(has_break, dim=-1),
+        aatype_1hot,  # Everyone gets the original sequence.
+    ]
+
+    protein["target_feat"] = torch.cat(target_feat, dim=-1)
+
+    # TODO bshor: should I use the masks?
+    protein["seq_mask"] = torch.ones(
+        protein["aatype"].shape, dtype=torch.float32
+    )
+    protein["msa_mask"] = torch.ones(
+        protein["aatype"].shape, dtype=torch.float32
+    )
+
+    return protein
+
 
 
 @curry1

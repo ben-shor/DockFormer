@@ -96,6 +96,7 @@ def batched_gather(data, inds, dim=0, no_batch_dims=0):
 def dict_map(fn, dic, leaf_type):
     new_dict = {}
     for k, v in dic.items():
+        # print("dictttt", k,type(v), v)
         if type(v) is dict:
             new_dict[k] = dict_map(fn, v, leaf_type)
         else:

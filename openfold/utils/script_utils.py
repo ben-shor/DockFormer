@@ -6,6 +6,7 @@ import time
 
 import numpy
 import torch
+from lightning.pytorch.utilities.deepspeed import convert_zero_checkpoint_to_fp32_state_dict
 
 from openfold.model.model import AlphaFold
 from openfold.np import residue_constants, protein
@@ -13,10 +14,6 @@ from openfold.np.relax import relax
 from openfold.utils.import_weights import (
     import_jax_weights_,
     import_openfold_weights_
-)
-
-from pytorch_lightning.utilities.deepspeed import (
-    convert_zero_checkpoint_to_fp32_state_dict
 )
 
 logging.basicConfig()

@@ -5,8 +5,6 @@ import pickle
 from alphafold.data import pipeline, pipeline_multimer, templates
 from alphafold.data.tools import hmmsearch, hhsearch
 
-from scripts.utils import add_data_args
-
 
 def main(args):
     if (args.multimer):
@@ -72,7 +70,6 @@ if __name__ == "__main__":
     parser.add_argument("mmcif_dir", type=str)
     parser.add_argument("output_dir", type=str)
     parser.add_argument("--multimer", action='store_true')
-    add_data_args(parser)
 
     args = parser.parse_args()
 

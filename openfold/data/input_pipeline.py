@@ -24,27 +24,27 @@ def nonensembled_transform_fns(common_cfg, mode_cfg):
     """Input pipeline data transformers that are not ensembled."""
     transforms = [
         data_transforms.cast_to_64bit_ints,
-        data_transforms.correct_msa_restypes,
         data_transforms.squeeze_features,
-        data_transforms.randomly_replace_msa_with_unknown(0.0),
-        data_transforms.make_seq_mask,
-        data_transforms.make_msa_mask,
-        data_transforms.make_hhblits_profile,
+        # TODO bshor: maybe should not comment those
+        # data_transforms.randomly_replace_msa_with_unknown(0.0),
+        # data_transforms.make_seq_mask,
+        # data_transforms.make_msa_mask,
+        # data_transforms.make_hhblits_profile,
     ]
-    if common_cfg.use_templates:
-        transforms.extend(
-            [
-                data_transforms.fix_templates_aatype,
-                data_transforms.make_template_mask,
-                data_transforms.make_pseudo_beta("template_"),
-            ]
-        )
-        if common_cfg.use_template_torsion_angles:
-            transforms.extend(
-                [
-                    data_transforms.atom37_to_torsion_angles("template_"),
-                ]
-            )
+    # if common_cfg.use_templates:
+    #     transforms.extend(
+    #         [
+    #             data_transforms.fix_templates_aatype,
+    #             data_transforms.make_template_mask,
+    #             data_transforms.make_pseudo_beta("template_"),
+    #         ]
+    #     )
+    #     if common_cfg.use_template_torsion_angles:
+    #         transforms.extend(
+    #             [
+    #                 data_transforms.atom37_to_torsion_angles("template_"),
+    #             ]
+    #         )
 
     transforms.extend(
         [
@@ -71,81 +71,73 @@ def ensembled_transform_fns(common_cfg, mode_cfg, ensemble_seed):
     """Input pipeline data transformers that can be ensembled and averaged."""
     transforms = []
 
-    if mode_cfg.block_delete_msa:
-        transforms.append(data_transforms.block_delete_msa(common_cfg.block_delete_msa))
+    # if mode_cfg.block_delete_msa:
+    #     transforms.append(data_transforms.block_delete_msa(common_cfg.block_delete_msa))
+    #
+    # if "max_distillation_msa_clusters" in mode_cfg:
+    #     transforms.append(
+    #         data_transforms.sample_msa_distillation(
+    #             mode_cfg.max_distillation_msa_clusters
+    #         )
+    #     )
 
-    if "max_distillation_msa_clusters" in mode_cfg:
-        transforms.append(
-            data_transforms.sample_msa_distillation(
-                mode_cfg.max_distillation_msa_clusters
-            )
-        )
+    # if common_cfg.reduce_msa_clusters_by_max_templates:
+    #     pad_msa_clusters = mode_cfg.max_msa_clusters - mode_cfg.max_templates
+    # else:
+    #     pad_msa_clusters = mode_cfg.max_msa_clusters
 
-    if common_cfg.reduce_msa_clusters_by_max_templates:
-        pad_msa_clusters = mode_cfg.max_msa_clusters - mode_cfg.max_templates
-    else:
-        pad_msa_clusters = mode_cfg.max_msa_clusters
-
-    max_msa_clusters = pad_msa_clusters
-    max_extra_msa = mode_cfg.max_extra_msa
-
+    # max_msa_clusters = pad_msa_clusters
+    # max_extra_msa = mode_cfg.max_extra_msa
+    #
     msa_seed = None
     if(not common_cfg.resample_msa_in_recycling):
         msa_seed = ensemble_seed
-    
-    transforms.append(
-        data_transforms.sample_msa(
-            max_msa_clusters, 
-            keep_extra=True,
-            seed=msa_seed,
-        )
-    )
+    #
+    # transforms.append(
+    #     data_transforms.sample_msa(
+    #         max_msa_clusters,
+    #         keep_extra=True,
+    #         seed=msa_seed,
+    #     )
+    # )
 
-    if "masked_msa" in common_cfg:
-        # Masked MSA should come *before* MSA clustering so that
-        # the clustering and full MSA profile do not leak information about
-        # the masked locations and secret corrupted locations.
-        transforms.append(
-            data_transforms.make_masked_msa(
-                common_cfg.masked_msa, mode_cfg.masked_msa_replace_fraction,
-                seed=(msa_seed + 1) if msa_seed else None,
-            )
-        )
+    # if "masked_msa" in common_cfg:
+    #     # Masked MSA should come *before* MSA clustering so that
+    #     # the clustering and full MSA profile do not leak information about
+    #     # the masked locations and secret corrupted locations.
+    #     transforms.append(
+    #         data_transforms.make_masked_msa(
+    #             common_cfg.masked_msa, mode_cfg.masked_msa_replace_fraction,
+    #             seed=(msa_seed + 1) if msa_seed else None,
+    #         )
+    #     )
 
-    if common_cfg.msa_cluster_features:
-        transforms.append(data_transforms.nearest_neighbor_clusters())
-        transforms.append(data_transforms.summarize_clusters())
-
-    # Crop after creating the cluster profiles.
-    if max_extra_msa:
-        transforms.append(data_transforms.crop_extra_msa(max_extra_msa))
-    else:
-        transforms.append(data_transforms.delete_extra_msa)
-
-    transforms.append(data_transforms.make_msa_feat())
+    # transforms.append(data_transforms.make_msa_feat())
+    transforms.append(data_transforms.make_target_feat())
 
     crop_feats = dict(common_cfg.feat)
 
     if mode_cfg.fixed_size:
         transforms.append(data_transforms.select_feat(list(crop_feats)))
-        transforms.append(
-            data_transforms.random_crop_to_size(
-                mode_cfg.crop_size,
-                mode_cfg.max_templates,
-                crop_feats,
-                mode_cfg.subsample_templates,
-                seed=ensemble_seed + 1,
-            )
-        )
-        transforms.append(
-            data_transforms.make_fixed_size(
-                crop_feats,
-                pad_msa_clusters,
-                mode_cfg.max_extra_msa,
-                mode_cfg.crop_size,
-                mode_cfg.max_templates,
-            )
-        )
+        # TODO bshor: maybe should not comment those
+        # transforms.append(
+        #     data_transforms.random_crop_to_size(
+        #         mode_cfg.crop_size,
+        #         mode_cfg.max_templates,
+        #         crop_feats,
+        #         mode_cfg.subsample_templates,
+        #         seed=ensemble_seed + 1,
+        #     )
+        # )
+        # transforms.append(
+        #     data_transforms.make_fixed_size(
+        #         crop_feats,
+        #         pad_msa_clusters,
+        #         mode_cfg.max_extra_msa,
+        #         mode_cfg.crop_size,
+        #         mode_cfg.max_templates,
+        #     )
+        # )
     else:
         transforms.append(
             data_transforms.crop_templates(mode_cfg.max_templates)

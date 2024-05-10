@@ -1,5 +1,6 @@
-from pytorch_lightning.utilities import rank_zero_info
-from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+from lightning.pytorch.callbacks import EarlyStopping
+from lightning_utilities.core.rank_zero import rank_zero_info
+
 
 class EarlyStoppingVerbose(EarlyStopping):
     """

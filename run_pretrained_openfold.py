@@ -39,8 +39,7 @@ if (
 torch.set_grad_enabled(False)
 
 from openfold.config import model_config
-from openfold.data import templates, feature_pipeline, data_pipeline
-from openfold.data.tools import hhsearch, hmmsearch
+from openfold.data import feature_pipeline, data_pipeline
 from openfold.np import protein
 from openfold.utils.script_utils import (load_models_from_command_line, parse_fasta, run_model,
                                          prep_output, relax_protein)
@@ -50,73 +49,8 @@ from openfold.utils.trace_utils import (
     trace_model_,
 )
 
-from scripts.precompute_embeddings import EmbeddingGenerator
-from scripts.utils import add_data_args
-
 
 TRACING_INTERVAL = 50
-
-
-def precompute_alignments(tags, seqs, alignment_dir, args):
-    for tag, seq in zip(tags, seqs):
-        tmp_fasta_path = os.path.join(args.output_dir, f"tmp_{os.getpid()}.fasta")
-        with open(tmp_fasta_path, "w") as fp:
-            fp.write(f">{tag}\n{seq}")
-
-        local_alignment_dir = os.path.join(alignment_dir, tag)
-
-        if args.use_precomputed_alignments is None:
-            logger.info(f"Generating alignments for {tag}...")
-
-            os.makedirs(local_alignment_dir, exist_ok=True)
-
-            if "multimer" in args.config_preset:
-                template_searcher = hmmsearch.Hmmsearch(
-                    binary_path=args.hmmsearch_binary_path,
-                    hmmbuild_binary_path=args.hmmbuild_binary_path,
-                    database_path=args.pdb_seqres_database_path,
-                )
-            else:
-                template_searcher = hhsearch.HHSearch(
-                    binary_path=args.hhsearch_binary_path,
-                    databases=[args.pdb70_database_path],
-                )
-
-            # In seqemb mode, use AlignmentRunner only to generate templates
-            if args.use_single_seq_mode:
-                alignment_runner = data_pipeline.AlignmentRunner(
-                    jackhmmer_binary_path=args.jackhmmer_binary_path,
-                    uniref90_database_path=args.uniref90_database_path,
-                    template_searcher=template_searcher,
-                    no_cpus=args.cpus,
-                )
-                embedding_generator = EmbeddingGenerator()
-                embedding_generator.run(tmp_fasta_path, alignment_dir)
-            else:
-                alignment_runner = data_pipeline.AlignmentRunner(
-                    jackhmmer_binary_path=args.jackhmmer_binary_path,
-                    hhblits_binary_path=args.hhblits_binary_path,
-                    uniref90_database_path=args.uniref90_database_path,
-                    mgnify_database_path=args.mgnify_database_path,
-                    bfd_database_path=args.bfd_database_path,
-                    uniref30_database_path=args.uniref30_database_path,
-                    uniclust30_database_path=args.uniclust30_database_path,
-                    uniprot_database_path=args.uniprot_database_path,
-                    template_searcher=template_searcher,
-                    use_small_bfd=args.bfd_database_path is None,
-                    no_cpus=args.cpus
-                )
-
-            alignment_runner.run(
-                tmp_fasta_path, local_alignment_dir
-            )
-        else:
-            logger.info(
-                f"Using precomputed alignments for {tag} at {alignment_dir}..."
-            )
-
-        # Remove temporary FASTA file
-        os.remove(tmp_fasta_path)
 
 
 def round_up_seqlen(seqlen):
@@ -186,35 +120,7 @@ def main(args):
                 "Tracing requires that fixed_size mode be enabled in the config"
             )
 
-    is_multimer = "multimer" in args.config_preset
-
-    if is_multimer:
-        template_featurizer = templates.HmmsearchHitFeaturizer(
-            mmcif_dir=args.template_mmcif_dir,
-            max_template_date=args.max_template_date,
-            max_hits=config.data.predict.max_templates,
-            kalign_binary_path=args.kalign_binary_path,
-            release_dates_path=args.release_dates_path,
-            obsolete_pdbs_path=args.obsolete_pdbs_path
-        )
-    else:
-        template_featurizer = templates.HhsearchHitFeaturizer(
-            mmcif_dir=args.template_mmcif_dir,
-            max_template_date=args.max_template_date,
-            max_hits=config.data.predict.max_templates,
-            kalign_binary_path=args.kalign_binary_path,
-            release_dates_path=args.release_dates_path,
-            obsolete_pdbs_path=args.obsolete_pdbs_path
-        )
-
-    data_processor = data_pipeline.DataPipeline(
-        template_featurizer=template_featurizer,
-    )
-
-    if is_multimer:
-        data_processor = data_pipeline.DataPipelineMultimer(
-            monomer_data_pipeline=data_processor,
-        )
+    data_processor = data_pipeline.DataPipeline()
 
     output_dir_base = args.output_dir
     random_seed = args.data_random_seed
@@ -242,7 +148,7 @@ def main(args):
 
         tags, seqs = parse_fasta(data)
 
-        if not is_multimer and len(tags) != 1:
+        if len(tags) != 1:
             print(
                 f"{fasta_path} contains more than one sequence but "
                 f"multimer mode is not enabled. Skipping..."
@@ -272,9 +178,6 @@ def main(args):
             if args.output_postfix is not None:
                 output_name = f'{output_name}_{args.output_postfix}'
 
-            # Does nothing if the alignments have already been computed
-            precompute_alignments(tags, seqs, alignment_dir, args)
-
             feature_dict = feature_dicts.get(tag, None)
             if feature_dict is None:
                 feature_dict = generate_feature_dict(
@@ -295,7 +198,7 @@ def main(args):
                 feature_dicts[tag] = feature_dict
 
             processed_feature_dict = feature_processor.process_features(
-                feature_dict, mode='predict', is_multimer=is_multimer
+                feature_dict, mode='predict'
             )
 
             processed_feature_dict = {
@@ -453,7 +356,6 @@ if __name__ == "__main__":
         "--cif_output", action="store_true", default=False,
         help="Output predicted models in ModelCIF format instead of PDB format (default)"
     )
-    add_data_args(parser)
     args = parser.parse_args()
 
     if args.jax_param_path is None and args.openfold_checkpoint_path is None:
