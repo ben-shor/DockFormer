@@ -87,18 +87,6 @@ def make_pdb_features(
     return pdb_feats
 
 
-def pad_msa(np_example, min_num_seq):
-    np_example = dict(np_example)
-    num_seq = np_example['msa'].shape[0]
-    if num_seq < min_num_seq:
-      for feat in ('msa', 'deletion_matrix', 'bert_mask', 'msa_mask'):
-        np_example[feat] = np.pad(
-            np_example[feat], ((0, min_num_seq - num_seq), (0, 0)))
-      np_example['cluster_bias_mask'] = np.pad(
-          np_example['cluster_bias_mask'], ((0, min_num_seq - num_seq),))
-    return np_example
-
-
 class DataPipeline:
     """Assembles input features."""
     def __init__(
@@ -134,7 +122,5 @@ class DataPipeline:
             protein_object,
             description,
         )
-
-        # TODO bshor: the pdb_feats should include sequence_features, if not - add them
 
         return {**pdb_feats}

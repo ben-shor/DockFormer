@@ -63,13 +63,6 @@ def make_data_config(
 
     feature_names = cfg.common.unsupervised_features
 
-    # Add seqemb related features if using seqemb mode.
-    if cfg.seqemb_mode.enabled:
-        feature_names += cfg.common.seqemb_features
-
-    if cfg.common.use_templates:
-        feature_names += cfg.common.template_features
-
     if cfg[mode].supervised:
         feature_names += cfg.supervised.supervised_features
 
@@ -128,9 +121,6 @@ class FeaturePipeline:
         raw_features: FeatureDict,
         mode: str = "train",
     ) -> FeatureDict:
-        # if(is_multimer and mode != "predict"):
-        #     raise ValueError("Multimer mode is not currently trainable")
-        
         return np_example_to_features(
             np_example=raw_features,
             config=self.config,

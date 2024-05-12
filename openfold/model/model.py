@@ -131,8 +131,6 @@ class AlphaFold(nn.Module):
         pair_mask = seq_mask[..., None] * seq_mask[..., None, :]
         msa_mask = feats["msa_mask"]
 
-
-        # TODO bshor: rewrite input_embedder to use structures and change it over here
         # Initialize the MSA and pair representations
         # m: [*, S_c, N, C_m]
         # z: [*, N, N, C_z]
@@ -143,6 +141,7 @@ class AlphaFold(nn.Module):
             inplace_safe=inplace_safe,
         )
 
+
         # Unpack the recycling embeddings. Removing them from the list allows 
         # them to be freed further down in this function, saving memory
         m_1_prev, z_prev, x_prev = reversed([prevs.pop() for _ in range(3)])
@@ -151,13 +150,13 @@ class AlphaFold(nn.Module):
         if None in [m_1_prev, z_prev, x_prev]:
             # [*, N, C_m]
             m_1_prev = m.new_zeros(
-                (*batch_dims, n, self.config.input_embedder.c_m),
+                (*batch_dims, n, self.config.structure_input_embedder.c_m),
                 requires_grad=False,
             )
 
             # [*, N, N, C_z]
             z_prev = z.new_zeros(
-                (*batch_dims, n, n, self.config.input_embedder.c_z),
+                (*batch_dims, n, n, self.config.structure_input_embedder.c_z),
                 requires_grad=False,
             )
 
@@ -274,24 +273,6 @@ class AlphaFold(nn.Module):
 
         return outputs, m_1_prev, z_prev, x_prev, early_stop
 
-    def _disable_activation_checkpointing(self):
-        self.template_embedder.template_pair_stack.blocks_per_ckpt = None
-        self.evoformer.blocks_per_ckpt = None
-
-        for b in self.extra_msa_stack.blocks:
-            b.ckpt = False
-
-    def _enable_activation_checkpointing(self):
-        self.template_embedder.template_pair_stack.blocks_per_ckpt = (
-            self.config.template.template_pair_stack.blocks_per_ckpt
-        )
-        self.evoformer.blocks_per_ckpt = (
-            self.config.evoformer_stack.blocks_per_ckpt
-        )
-
-        for b in self.extra_msa_stack.blocks:
-            b.ckpt = self.config.extra_msa.extra_msa_stack.ckpt
-
     def forward(self, batch):
         """
         Args:
@@ -323,25 +304,6 @@ class AlphaFold(nn.Module):
                         MSA mask
                     "pair_mask" ([*, N_res, N_res])
                         2-D pair mask
-                    "extra_msa_mask" ([*, N_extra, N_res])
-                        Extra MSA mask
-                    "template_mask" ([*, N_templ])
-                        Template mask (on the level of templates, not
-                        residues)
-                    "template_aatype" ([*, N_templ, N_res])
-                        Tensor of template residue indices (indices greater
-                        than 19 are clamped to 20 (Unknown))
-                    "template_all_atom_positions"
-                        ([*, N_templ, N_res, 37, 3])
-                        Template atom coordinates in atom37 format
-                    "template_all_atom_mask" ([*, N_templ, N_res, 37])
-                        Template atom coordinate mask
-                    "template_pseudo_beta" ([*, N_templ, N_res, 3])
-                        Positions of template carbon "pseudo-beta" atoms
-                        (i.e. C_beta for all residues but glycine, for
-                        for which C_alpha is used instead)
-                    "template_pseudo_beta_mask" ([*, N_templ, N_res])
-                        Pseudo-beta mask
         """
         # Initialize recycling embeddings
         m_1_prev, z_prev, x_prev = None, None, None

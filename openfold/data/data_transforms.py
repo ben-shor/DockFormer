@@ -20,7 +20,7 @@ from operator import add
 import numpy as np
 import torch
 
-from openfold.config import NUM_RES, NUM_EXTRA_SEQ, NUM_TEMPLATES, NUM_MSA_SEQ
+from openfold.config import NUM_RES
 from openfold.np import residue_constants as rc
 from openfold.utils.rigid_utils import Rotation, Rigid
 from openfold.utils.geometry.rigid_matrix_vector import Rigid3Array
@@ -48,20 +48,6 @@ def make_one_hot(x, num_classes):
     return x_one_hot
 
 
-def make_seq_mask(protein):
-    protein["seq_mask"] = torch.ones(
-        protein["aatype"].shape, dtype=torch.float32
-    )
-    return protein
-
-
-def make_template_mask(protein):
-    protein["template_mask"] = torch.ones(
-        protein["template_aatype"].shape[0], dtype=torch.float32
-    )
-    return protein
-
-
 def curry1(f):
     """Supply all arguments but the first."""
     @wraps(f)
@@ -71,44 +57,16 @@ def curry1(f):
     return fc
 
 
-def make_all_atom_aatype(protein):
-    protein["all_atom_aatype"] = protein["aatype"]
-    return protein
-
-
-def fix_templates_aatype(protein):
-    # Map one-hot to indices
-    num_templates = protein["template_aatype"].shape[0]
-    protein["template_aatype"] = torch.argmax(
-        protein["template_aatype"], dim=-1
-    )
-    # Map hhsearch-aatype to our aatype.
-    new_order_list = rc.MAP_HHBLITS_AATYPE_TO_OUR_AATYPE
-    new_order = torch.tensor(
-        new_order_list, dtype=torch.int64, device=protein["template_aatype"].device,
-    ).expand(num_templates, -1)
-    protein["template_aatype"] = torch.gather(
-        new_order, 1, index=protein["template_aatype"]
-    )
-
-    return protein
-
-
 def squeeze_features(protein):
     """Remove singleton and repeated dimensions in protein features."""
     protein["aatype"] = torch.argmax(protein["aatype"], dim=-1)
     for k in [
         "domain_name",
-        "msa",
-        "num_alignments",
         "seq_length",
         "sequence",
-        "superfamily",
-        "deletion_matrix",
         "resolution",
         "between_segment_residues",
         "residue_index",
-        "template_all_atom_mask",
     ]:
         if k in protein:
             final_dim = protein[k].shape[-1]
@@ -118,235 +76,10 @@ def squeeze_features(protein):
                 else:
                     protein[k] = np.squeeze(protein[k], axis=-1)
 
-    for k in ["seq_length", "num_alignments"]:
+    for k in ["seq_length"]:
         if k in protein:
             protein[k] = protein[k][0]
 
-    return protein
-
-
-@curry1
-def randomly_replace_msa_with_unknown(protein, replace_proportion):
-    """Replace a portion of the MSA with 'X'."""
-    msa_mask = torch.rand(protein["msa"].shape) < replace_proportion
-    x_idx = 20
-    gap_idx = 21
-    msa_mask = torch.logical_and(msa_mask, protein["msa"] != gap_idx)
-    protein["msa"] = torch.where(
-        msa_mask,
-        torch.ones_like(protein["msa"]) * x_idx,
-        protein["msa"]
-    )
-    aatype_mask = torch.rand(protein["aatype"].shape) < replace_proportion
-
-    protein["aatype"] = torch.where(
-        aatype_mask,
-        torch.ones_like(protein["aatype"]) * x_idx,
-        protein["aatype"],
-    )
-    return protein
-
-
-@curry1
-def sample_msa(protein, max_seq, keep_extra, seed=None):
-    """Sample MSA randomly, remaining sequences are stored are stored as `extra_*`."""
-    num_seq = protein["msa"].shape[0]
-
-    g = None
-    if seed is not None:
-        g = torch.Generator(device=protein["msa"].device)
-        g.manual_seed(seed)
-
-    shuffled = torch.randperm(num_seq - 1, generator=g) + 1
-    index_order = torch.cat(
-        (torch.tensor([0], device=shuffled.device), shuffled), 
-        dim=0
-    )
-    num_sel = min(max_seq, num_seq)
-    sel_seq, not_sel_seq = torch.split(
-        index_order, [num_sel, num_seq - num_sel]
-    )
-
-    for k in MSA_FEATURE_NAMES:
-        if k in protein:
-            if keep_extra:
-                protein["extra_" + k] = torch.index_select(
-                    protein[k], 0, not_sel_seq
-                )
-            protein[k] = torch.index_select(protein[k], 0, sel_seq)
-
-    return protein
-
-
-@curry1
-def add_distillation_flag(protein, distillation):
-    protein['is_distillation'] = distillation
-    return protein
-
-@curry1
-def sample_msa_distillation(protein, max_seq):
-    if(protein["is_distillation"] == 1):
-        protein = sample_msa(max_seq, keep_extra=False)(protein)
-    return protein
-
-
-@curry1
-def crop_extra_msa(protein, max_extra_msa):
-    num_seq = protein["extra_msa"].shape[0]
-    num_sel = min(max_extra_msa, num_seq)
-    select_indices = torch.randperm(num_seq)[:num_sel]
-    for k in MSA_FEATURE_NAMES:
-        if "extra_" + k in protein:
-            protein["extra_" + k] = torch.index_select(
-                protein["extra_" + k], 0, select_indices
-            )
-    
-    return protein
-
-
-def delete_extra_msa(protein):
-    for k in MSA_FEATURE_NAMES:
-        if "extra_" + k in protein:
-            del protein["extra_" + k]
-    return protein
-
-
-# Not used in inference
-@curry1
-def block_delete_msa(protein, config):
-    num_seq = protein["msa"].shape[0]
-    block_num_seq = torch.floor(
-        torch.tensor(num_seq, dtype=torch.float32, device=protein["msa"].device)
-        * config.msa_fraction_per_block
-    ).to(torch.int32)
-
-    if int(block_num_seq) == 0:
-        return protein
-
-    if config.randomize_num_blocks:
-        nb = int(torch.randint(
-            low=0,
-            high=config.num_blocks + 1,
-            size=(1,),
-            device=protein["msa"].device,
-        )[0])
-    else:
-        nb = config.num_blocks
-
-    del_block_starts = torch.randint(low=1, high=num_seq, size=(nb,), device=protein["msa"].device)
-    del_blocks = del_block_starts[:, None] + torch.arange(start=0, end=block_num_seq)
-    del_blocks = torch.clip(del_blocks, 1, num_seq - 1)
-    del_indices = torch.unique(torch.reshape(del_blocks, [-1]))
-
-    # Make sure we keep the original sequence
-    combined = torch.cat((torch.arange(start=0, end=num_seq), del_indices)).long()
-    uniques, counts = combined.unique(return_counts=True)
-    keep_indices = uniques[counts == 1]
-
-    assert int(keep_indices[0]) == 0
-    for k in MSA_FEATURE_NAMES:
-        if k in protein:
-            protein[k] = torch.index_select(protein[k], 0, keep_indices)
-
-    return protein
-
-
-@curry1
-def nearest_neighbor_clusters(protein, gap_agreement_weight=0.0):
-    weights = torch.cat(
-        [
-            torch.ones(21, device=protein["msa"].device), 
-            gap_agreement_weight * torch.ones(1, device=protein["msa"].device),
-            torch.zeros(1, device=protein["msa"].device)
-        ],
-        0,
-    )
-
-    # Make agreement score as weighted Hamming distance
-    msa_one_hot = make_one_hot(protein["msa"], 23)
-    sample_one_hot = protein["msa_mask"][:, :, None] * msa_one_hot
-    extra_msa_one_hot = make_one_hot(protein["extra_msa"], 23)
-    extra_one_hot = protein["extra_msa_mask"][:, :, None] * extra_msa_one_hot
-
-    num_seq, num_res, _ = sample_one_hot.shape
-    extra_num_seq, _, _ = extra_one_hot.shape
-
-    # Compute tf.einsum('mrc,nrc,c->mn', sample_one_hot, extra_one_hot, weights)
-    # in an optimized fashion to avoid possible memory or computation blowup.
-    agreement = torch.matmul(
-        torch.reshape(extra_one_hot, [extra_num_seq, num_res * 23]),
-        torch.reshape(
-            sample_one_hot * weights, [num_seq, num_res * 23]
-        ).transpose(0, 1),
-    )
-
-    # Assign each sequence in the extra sequences to the closest MSA sample
-    protein["extra_cluster_assignment"] = torch.argmax(agreement, dim=1).to(
-        torch.int64
-    )
-    
-    return protein
-
-
-def unsorted_segment_sum(data, segment_ids, num_segments):
-    """
-    Computes the sum along segments of a tensor. Similar to 
-    tf.unsorted_segment_sum, but only supports 1-D indices.
-
-    :param data: A tensor whose segments are to be summed.
-    :param segment_ids: The 1-D segment indices tensor.
-    :param num_segments: The number of segments.
-    :return: A tensor of same data type as the data argument.
-    """
-    assert (
-        len(segment_ids.shape) == 1 and
-        segment_ids.shape[0] == data.shape[0]
-    )
-    segment_ids = segment_ids.view(
-        segment_ids.shape[0], *((1,) * len(data.shape[1:]))
-    )
-    segment_ids = segment_ids.expand(data.shape)
-    shape = [num_segments] + list(data.shape[1:])
-    tensor = (
-        torch.zeros(*shape, device=segment_ids.device)
-        .scatter_add_(0, segment_ids, data.float())
-    )
-    tensor = tensor.type(data.dtype)
-    return tensor
-
-
-@curry1
-def summarize_clusters(protein):
-    """Produce profile and deletion_matrix_mean within each cluster."""
-    num_seq = protein["msa"].shape[0]
-
-    def csum(x):
-        return unsorted_segment_sum(
-            x, protein["extra_cluster_assignment"], num_seq
-        )
-
-    mask = protein["extra_msa_mask"]
-    mask_counts = 1e-6 + protein["msa_mask"] + csum(mask)  # Include center
-
-    msa_sum = csum(mask[:, :, None] * make_one_hot(protein["extra_msa"], 23))
-    msa_sum += make_one_hot(protein["msa"], 23)  # Original sequence
-    protein["cluster_profile"] = msa_sum / mask_counts[:, :, None]
-    del msa_sum
-
-    del_sum = csum(mask * protein["extra_deletion_matrix"])
-    del_sum += protein["deletion_matrix"]  # Original sequence
-    protein["cluster_deletion_mean"] = del_sum / mask_counts
-    del del_sum
-    
-    return protein
-
-
-def make_msa_mask(protein):
-    """Mask features are all ones, but will later be zero-padded."""
-    protein["msa_mask"] = torch.ones(protein["msa"].shape, dtype=torch.float32)
-    protein["msa_row_mask"] = torch.ones(
-        (protein["msa"].shape[0]), dtype=torch.float32
-    )
     return protein
 
 
@@ -371,189 +104,15 @@ def pseudo_beta_fn(aatype, all_atom_positions, all_atom_mask):
 
 
 @curry1
-def make_pseudo_beta(protein, prefix=""):
+def make_pseudo_beta(protein):
     """Create pseudo-beta (alpha for glycine) position and mask."""
-    assert prefix in ["", "template_"]
-    (
-        protein[prefix + "pseudo_beta"],
-        protein[prefix + "pseudo_beta_mask"],
-    ) = pseudo_beta_fn(
-        protein["template_aatype" if prefix else "aatype"],
-        protein[prefix + "all_atom_positions"],
-        protein["template_all_atom_mask" if prefix else "all_atom_mask"],
+    (protein["pseudo_beta"], protein["pseudo_beta_mask"]) = pseudo_beta_fn(
+        protein["aatype"],
+        protein["all_atom_positions"],
+        protein["all_atom_mask"],
     )
     return protein
 
-
-@curry1
-def add_constant_field(protein, key, value):
-    protein[key] = torch.tensor(value, device=protein["msa"].device)
-    return protein
-
-
-def shaped_categorical(probs, epsilon=1e-10):
-    ds = probs.shape
-    num_classes = ds[-1]
-    distribution = torch.distributions.categorical.Categorical(
-        torch.reshape(probs + epsilon, [-1, num_classes])
-    )
-    counts = distribution.sample()
-    return torch.reshape(counts, ds[:-1])
-
-
-def make_hhblits_profile(protein):
-    """Compute the HHblits MSA profile if not already present."""
-    if "hhblits_profile" in protein:
-        return protein
-
-    # Compute the profile for every residue (over all MSA sequences).
-    msa_one_hot = make_one_hot(protein["msa"], 22)
-
-    protein["hhblits_profile"] = torch.mean(msa_one_hot, dim=0)
-    return protein
-
-
-@curry1
-def make_masked_msa(protein, config, replace_fraction, seed):
-    """Create data for BERT on raw MSA."""
-    device = protein["msa"].device
-
-    # Add a random amino acid uniformly.
-    random_aa = torch.tensor(
-        [0.05] * 20 + [0.0, 0.0], 
-        dtype=torch.float32, 
-        device=device
-    )
-
-    categorical_probs = (
-        config.uniform_prob * random_aa
-        + config.profile_prob * protein["hhblits_profile"]
-        + config.same_prob * make_one_hot(protein["msa"], 22)
-    )
-
-    # Put all remaining probability on [MASK] which is a new column
-    pad_shapes = list(
-        reduce(add, [(0, 0) for _ in range(len(categorical_probs.shape))])
-    )
-    pad_shapes[1] = 1
-    mask_prob = (
-        1.0 - config.profile_prob - config.same_prob - config.uniform_prob
-    )
-    assert mask_prob >= 0.0
-
-    categorical_probs = torch.nn.functional.pad(
-        categorical_probs, pad_shapes, value=mask_prob,
-    )
-
-    sh = protein["msa"].shape
-
-    g = None
-    if seed is not None:
-        g = torch.Generator(device=protein["msa"].device)
-        g.manual_seed(seed)
-    
-    sample = torch.rand(sh, device=device, generator=g)
-    mask_position = sample < replace_fraction
-
-    bert_msa = shaped_categorical(categorical_probs)
-    bert_msa = torch.where(mask_position, bert_msa, protein["msa"])
-
-    # Mix real and masked MSA
-    protein["bert_mask"] = mask_position.to(torch.float32)
-    protein["true_msa"] = protein["msa"]
-    protein["msa"] = bert_msa
-
-    return protein
-
-
-@curry1
-def make_fixed_size(
-    protein,
-    shape_schema,
-    msa_cluster_size,
-    extra_msa_size,
-    num_res=0,
-    num_templates=0,
-):
-    """Guess at the MSA and sequence dimension to make fixed size."""
-    pad_size_map = {
-        NUM_RES: num_res,
-        NUM_MSA_SEQ: msa_cluster_size,
-        NUM_EXTRA_SEQ: extra_msa_size,
-        NUM_TEMPLATES: num_templates,
-    }
-
-    for k, v in protein.items():
-        # Don't transfer this to the accelerator.
-        if k == "extra_cluster_assignment":
-            continue
-        shape = list(v.shape)
-        schema = shape_schema[k]
-        msg = "Rank mismatch between shape and shape schema for"
-        assert len(shape) == len(schema), f"{msg} {k}: {shape} vs {schema}"
-        pad_size = [
-            pad_size_map.get(s2, None) or s1 for (s1, s2) in zip(shape, schema)
-        ]
-
-        padding = [(0, p - v.shape[i]) for i, p in enumerate(pad_size)]
-        padding.reverse()
-        padding = list(itertools.chain(*padding))
-        if padding:
-            protein[k] = torch.nn.functional.pad(v, padding)
-            protein[k] = torch.reshape(protein[k], pad_size)
-    
-    return protein
-
-
-@curry1
-def make_msa_feat(protein):
-    """Create and concatenate MSA features."""
-    # Whether there is a domain break. Always zero for chains, but keeping for
-    # compatibility with domain datasets.
-    has_break = torch.clip(
-        protein["between_segment_residues"].to(torch.float32), 0, 1
-    )
-    aatype_1hot = make_one_hot(protein["aatype"], 21)
-
-    target_feat = [
-        torch.unsqueeze(has_break, dim=-1),
-        aatype_1hot,  # Everyone gets the original sequence.
-    ]
-
-    msa_1hot = make_one_hot(protein["msa"], 23)
-    has_deletion = torch.clip(protein["deletion_matrix"], 0.0, 1.0)
-    deletion_value = torch.atan(protein["deletion_matrix"] / 3.0) * (
-        2.0 / np.pi
-    )
-
-    msa_feat = [
-        msa_1hot,
-        torch.unsqueeze(has_deletion, dim=-1),
-        torch.unsqueeze(deletion_value, dim=-1),
-    ]
-
-    if "cluster_profile" in protein:
-        deletion_mean_value = torch.atan(
-            protein["cluster_deletion_mean"] / 3.0
-        ) * (2.0 / np.pi)
-        msa_feat.extend(
-            [
-                protein["cluster_profile"],
-                torch.unsqueeze(deletion_mean_value, dim=-1),
-            ]
-        )
-
-    if "extra_deletion_matrix" in protein:
-        protein["extra_has_deletion"] = torch.clip(
-            protein["extra_deletion_matrix"], 0.0, 1.0
-        )
-        protein["extra_deletion_value"] = torch.atan(
-            protein["extra_deletion_matrix"] / 3.0
-        ) * (2.0 / np.pi)
-
-    protein["msa_feat"] = torch.cat(msa_feat, dim=-1)
-    protein["target_feat"] = torch.cat(target_feat, dim=-1)
-    return protein
 
 @curry1
 def make_target_feat(protein):
@@ -587,14 +146,6 @@ def make_target_feat(protein):
 @curry1
 def select_feat(protein, feature_list):
     return {k: v for k, v in protein.items() if k in feature_list}
-
-
-@curry1
-def crop_templates(protein, max_templates):
-    for k, v in protein.items():
-        if k.startswith("template_"):
-            protein[k] = v[:max_templates]
-    return protein
 
 
 def make_atom14_masks(protein):
@@ -669,17 +220,6 @@ def make_atom14_masks(protein):
     protein["atom37_atom_exists"] = residx_atom37_mask
 
     return protein
-
-
-def make_atom14_masks_np(batch):
-    batch = tree_map(
-        lambda n: torch.tensor(n, device="cpu"), 
-        batch,
-        np.ndarray
-    )
-    out = make_atom14_masks(batch)
-    out = tensor_tree_map(lambda t: np.array(t), out)
-    return out
 
 
 def make_atom14_positions(protein):
@@ -786,13 +326,9 @@ def make_atom14_positions(protein):
 
 
 def atom37_to_frames(protein, eps=1e-8):
-    is_multimer = "asym_id" in protein
     aatype = protein["aatype"]
     all_atom_positions = protein["all_atom_positions"]
     all_atom_mask = protein["all_atom_mask"]
-
-    if is_multimer:
-        all_atom_positions = Vec3Array.from_array(all_atom_positions)
 
     batch_dims = len(aatype.shape[:-1])
 
@@ -840,37 +376,19 @@ def atom37_to_frames(protein, eps=1e-8):
         no_batch_dims=batch_dims,
     )
 
-    if is_multimer:
-        base_atom_pos = [batched_gather(
-            pos,
-            residx_rigidgroup_base_atom37_idx,
-            dim=-1,
-            no_batch_dims=len(all_atom_positions.shape[:-1]),
-        ) for pos in all_atom_positions]
-        base_atom_pos = Vec3Array.from_array(torch.stack(base_atom_pos, dim=-1))
-    else:
-        base_atom_pos = batched_gather(
-            all_atom_positions,
-            residx_rigidgroup_base_atom37_idx,
-            dim=-2,
-            no_batch_dims=len(all_atom_positions.shape[:-2]),
-        )
+    base_atom_pos = batched_gather(
+        all_atom_positions,
+        residx_rigidgroup_base_atom37_idx,
+        dim=-2,
+        no_batch_dims=len(all_atom_positions.shape[:-2]),
+    )
 
-    if is_multimer:
-        point_on_neg_x_axis = base_atom_pos[:, :, 0]
-        origin = base_atom_pos[:, :, 1]
-        point_on_xy_plane = base_atom_pos[:, :, 2]
-        gt_rotation = Rot3Array.from_two_vectors(
-            origin - point_on_neg_x_axis, point_on_xy_plane - origin)
-
-        gt_frames = Rigid3Array(gt_rotation, origin)
-    else:
-        gt_frames = Rigid.from_3_points(
-            p_neg_x_axis=base_atom_pos[..., 0, :],
-            origin=base_atom_pos[..., 1, :],
-            p_xy_plane=base_atom_pos[..., 2, :],
-            eps=eps,
-        )
+    gt_frames = Rigid.from_3_points(
+        p_neg_x_axis=base_atom_pos[..., 0, :],
+        origin=base_atom_pos[..., 1, :],
+        p_xy_plane=base_atom_pos[..., 2, :],
+        eps=eps,
+    )
 
     group_exists = batched_gather(
         restype_rigidgroup_mask,
@@ -892,12 +410,8 @@ def atom37_to_frames(protein, eps=1e-8):
     rots[..., 0, 0, 0] = -1
     rots[..., 0, 2, 2] = -1
 
-    if is_multimer:
-        gt_frames = gt_frames.compose_rotation(
-            Rot3Array.from_array(rots))
-    else:
-        rots = Rotation(rot_mats=rots)
-        gt_frames = gt_frames.compose(Rigid(rots, None))
+    rots = Rotation(rot_mats=rots)
+    gt_frames = gt_frames.compose(Rigid(rots, None))
 
     restype_rigidgroup_is_ambiguous = all_atom_mask.new_zeros(
         *((1,) * batch_dims), 21, 8
@@ -931,18 +445,12 @@ def atom37_to_frames(protein, eps=1e-8):
         no_batch_dims=batch_dims,
     )
 
-    if is_multimer:
-        ambiguity_rot = Rot3Array.from_array(residx_rigidgroup_ambiguity_rot)
-
-        # Create the alternative ground truth frames.
-        alt_gt_frames = gt_frames.compose_rotation(ambiguity_rot)
-    else:
-        residx_rigidgroup_ambiguity_rot = Rotation(
-            rot_mats=residx_rigidgroup_ambiguity_rot
-        )
-        alt_gt_frames = gt_frames.compose(
-            Rigid(residx_rigidgroup_ambiguity_rot, None)
-        )
+    residx_rigidgroup_ambiguity_rot = Rotation(
+        rot_mats=residx_rigidgroup_ambiguity_rot
+    )
+    alt_gt_frames = gt_frames.compose(
+        Rigid(residx_rigidgroup_ambiguity_rot, None)
+    )
 
     gt_frames_tensor = gt_frames.to_tensor_4x4()
     alt_gt_frames_tensor = alt_gt_frames.to_tensor_4x4()
@@ -1176,9 +684,7 @@ def get_chi_angles(protein):
 def random_crop_to_size(
     protein,
     crop_size,
-    max_templates,
     shape_schema,
-    subsample_templates=False,
     seed=None,
 ):
     """Crop randomly to `crop_size`, or keep as is if shorter than that."""
@@ -1191,14 +697,6 @@ def random_crop_to_size(
 
     seq_length = protein["seq_length"]
 
-    if "template_mask" in protein:
-        num_templates = protein["template_mask"].shape[-1]
-    else:
-        num_templates = 0
-
-    # No need to subsample templates if there aren't any
-    subsample_templates = subsample_templates and num_templates
-
     num_res_crop_size = min(int(seq_length), crop_size)
 
     def _randint(lower, upper):
@@ -1210,18 +708,6 @@ def random_crop_to_size(
                 generator=g,
         )[0])
 
-    if subsample_templates:
-        templates_crop_start = _randint(0, num_templates)
-        templates_select_indices = torch.randperm(
-            num_templates, device=protein["seq_length"].device, generator=g
-        )
-    else:
-        templates_crop_start = 0
-
-    num_templates_crop_size = min(
-        num_templates - templates_crop_start, max_templates
-    )
-
     n = seq_length - num_res_crop_size
     if "use_clamped_fape" in protein and protein["use_clamped_fape"] == 1.:
         right_anchor = n
@@ -1232,24 +718,14 @@ def random_crop_to_size(
     num_res_crop_start = _randint(0, right_anchor)
 
     for k, v in protein.items():
-        if k not in shape_schema or (
-            "template" not in k and NUM_RES not in shape_schema[k]
-        ):
+        if k not in shape_schema or (NUM_RES not in shape_schema[k]):
             continue
-
-        # randomly permute the templates before cropping them.
-        if k.startswith("template") and subsample_templates:
-            v = v[templates_select_indices]
 
         slices = []
         for i, (dim_size, dim) in enumerate(zip(shape_schema[k], v.shape)):
             is_num_res = dim_size == NUM_RES
-            if i == 0 and k.startswith("template"):
-                crop_size = num_templates_crop_size
-                crop_start = templates_crop_start
-            else:
-                crop_start = num_res_crop_start if is_num_res else 0
-                crop_size = num_res_crop_size if is_num_res else dim
+            crop_start = num_res_crop_start if is_num_res else 0
+            crop_size = num_res_crop_size if is_num_res else dim
             slices.append(slice(crop_start, crop_start + crop_size))
         protein[k] = v[slices]
 

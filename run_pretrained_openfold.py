@@ -12,14 +12,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import argparse
+import json
 import logging
-import math
 import numpy as np
 import os
 import pickle
-import random
-import time
 
 logging.basicConfig()
 logger = logging.getLogger(__file__)
@@ -41,185 +38,62 @@ torch.set_grad_enabled(False)
 from openfold.config import model_config
 from openfold.data import feature_pipeline, data_pipeline
 from openfold.np import protein
-from openfold.utils.script_utils import (load_models_from_command_line, parse_fasta, run_model,
-                                         prep_output, relax_protein)
+from openfold.utils.script_utils import (load_models_from_command_line, run_model, prep_output, relax_protein)
 from openfold.utils.tensor_utils import tensor_tree_map
-from openfold.utils.trace_utils import (
-    pad_feature_dict_seq,
-    trace_model_,
-)
-
-
-TRACING_INTERVAL = 50
-
-
-def round_up_seqlen(seqlen):
-    return int(math.ceil(seqlen / TRACING_INTERVAL)) * TRACING_INTERVAL
-
-
-def generate_feature_dict(
-    tags,
-    seqs,
-    alignment_dir,
-    data_processor,
-    args,
-):
-    tmp_fasta_path = os.path.join(args.output_dir, f"tmp_{os.getpid()}.fasta")
-
-    if "multimer" in args.config_preset:
-        with open(tmp_fasta_path, "w") as fp:
-            fp.write(
-                '\n'.join([f">{tag}\n{seq}" for tag, seq in zip(tags, seqs)])
-            )
-        feature_dict = data_processor.process_fasta(
-            fasta_path=tmp_fasta_path, alignment_dir=alignment_dir,
-        )
-    elif len(seqs) == 1:
-        tag = tags[0]
-        seq = seqs[0]
-        with open(tmp_fasta_path, "w") as fp:
-            fp.write(f">{tag}\n{seq}")
-
-        local_alignment_dir = os.path.join(alignment_dir, tag)
-        feature_dict = data_processor.process_fasta(
-            fasta_path=tmp_fasta_path,
-            alignment_dir=local_alignment_dir,
-            seqemb_mode=args.use_single_seq_mode,
-        )
-    else:
-        with open(tmp_fasta_path, "w") as fp:
-            fp.write(
-                '\n'.join([f">{tag}\n{seq}" for tag, seq in zip(tags, seqs)])
-            )
-        feature_dict = data_processor.process_multiseq_fasta(
-            fasta_path=tmp_fasta_path, super_alignment_dir=alignment_dir,
-        )
-
-    # Remove temporary FASTA file
-    os.remove(tmp_fasta_path)
-
-    return feature_dict
 
 
 def list_files_with_extensions(dir, extensions):
     return [f for f in os.listdir(dir) if f.endswith(extensions)]
 
 
-def main(args):
-    # Create the output directory
-    os.makedirs(args.output_dir, exist_ok=True)
+def manual_main():
+    input_dir = "/Users/benshor/Documents/Data/202401_pred_affinity/sample_test_input_folders/json"
+    output_dir = "/Users/benshor/Documents/Data/202401_pred_affinity/sample_test_input_folders/output"
+    ckpt_path = "/Users/benshor/Documents/Data/202401_pred_affinity/repos/EvoDocker/logs/evodocker_try1/version_7/checkpoints/epoch=0-step=100.ckpt"
+    # ckpt_path = "/Users/benshor/Documents/Data/202401_pred_affinity/repos/EvoDocker/logs/evodocker_try1/version_22/checkpoints/epoch=0-step=100.ckpt"
 
-    if args.config_preset.startswith("seq"):
-        args.use_single_seq_mode = True
+    config_preset = "initial_training"
+    skip_relaxation = True
+    save_outputs = False
+    device_name = "cpu"
 
-    config = model_config(args.config_preset, long_sequence_inference=args.long_sequence_inference)
-
-    if args.trace_model:
-        if not config.data.predict.fixed_size:
-            raise ValueError(
-                "Tracing requires that fixed_size mode be enabled in the config"
-            )
+    config = model_config(config_preset, long_sequence_inference=False)
 
     data_processor = data_pipeline.DataPipeline()
 
-    output_dir_base = args.output_dir
-    random_seed = args.data_random_seed
-    if random_seed is None:
-        random_seed = random.randrange(2 ** 32)
-
+    random_seed = 43
     np.random.seed(random_seed)
     torch.manual_seed(random_seed + 1)
 
     feature_processor = feature_pipeline.FeaturePipeline(config.data)
-    if not os.path.exists(output_dir_base):
-        os.makedirs(output_dir_base)
-    if args.use_precomputed_alignments is None:
-        alignment_dir = os.path.join(output_dir_base, "alignments")
-    else:
-        alignment_dir = args.use_precomputed_alignments
 
-    tag_list = []
-    seq_list = []
-    for fasta_file in list_files_with_extensions(args.fasta_dir, (".fasta", ".fa")):
-        # Gather input sequences
-        fasta_path = os.path.join(args.fasta_dir, fasta_file)
-        with open(fasta_path, "r") as fp:
-            data = fp.read()
-
-        tags, seqs = parse_fasta(data)
-
-        if len(tags) != 1:
-            print(
-                f"{fasta_path} contains more than one sequence but "
-                f"multimer mode is not enabled. Skipping..."
-            )
-            continue
-
-        # assert len(tags) == len(set(tags)), "All FASTA tags must be unique"
-        tag = '-'.join(tags)
-
-        tag_list.append((tag, tags))
-        seq_list.append(seqs)
-
-    seq_sort_fn = lambda target: sum([len(s) for s in target[1]])
-    sorted_targets = sorted(zip(tag_list, seq_list), key=seq_sort_fn)
     feature_dicts = {}
     model_generator = load_models_from_command_line(
         config,
-        args.model_device,
-        args.openfold_checkpoint_path,
-        args.jax_param_path,
-        args.output_dir)
+        model_device=device_name,
+        openfold_checkpoint_path=ckpt_path,
+        output_dir=output_dir)
 
     for model, output_directory in model_generator:
-        cur_tracing_interval = 0
-        for (tag, tags), seqs in sorted_targets:
-            output_name = f'{tag}_{args.config_preset}'
-            if args.output_postfix is not None:
-                output_name = f'{output_name}_{args.output_postfix}'
+        for input_filename in list_files_with_extensions(input_dir, ".json"):
+            tag = input_filename.split(".")[0]
+            output_name = f"{tag}_predicted"
 
-            feature_dict = feature_dicts.get(tag, None)
-            if feature_dict is None:
-                feature_dict = generate_feature_dict(
-                    tags,
-                    seqs,
-                    alignment_dir,
-                    data_processor,
-                    args,
-                )
+            input_path = os.path.join(input_dir, input_filename)
+            input_data = json.load(open(input_path, "r"))
 
-                if args.trace_model:
-                    n = feature_dict["aatype"].shape[-2]
-                    rounded_seqlen = round_up_seqlen(n)
-                    feature_dict = pad_feature_dict_seq(
-                        feature_dict, rounded_seqlen,
-                    )
+            input_structure = data_processor.process_pdb(pdb_path=input_data["input_structure"])
 
-                feature_dicts[tag] = feature_dict
-
-            processed_feature_dict = feature_processor.process_features(
-                feature_dict, mode='predict'
-            )
-
+            input_feats = feature_processor.process_features(input_structure, "predict")
+            processed_feature_dict = {**input_feats, "input_pseudo_beta": input_feats["pseudo_beta"]}
             processed_feature_dict = {
-                k: torch.as_tensor(v, device=args.model_device)
+                k: torch.as_tensor(v, device=device_name)
                 for k, v in processed_feature_dict.items()
             }
+            # turn into a batch of size 1
+            processed_feature_dict = {key: value.unsqueeze(0) for key, value in processed_feature_dict.items()}
 
-            if args.trace_model:
-                if rounded_seqlen > cur_tracing_interval:
-                    logger.info(
-                        f"Tracing model at {rounded_seqlen} residues..."
-                    )
-                    t = time.perf_counter()
-                    trace_model_(model, processed_feature_dict)
-                    tracing_time = time.perf_counter() - t
-                    logger.info(
-                        f"Tracing time: {tracing_time}"
-                    )
-                    cur_tracing_interval = rounded_seqlen
-
-            out = run_model(model, processed_feature_dict, tag, args.output_dir)
+            out = run_model(model, processed_feature_dict, tag, output_dir)
 
             # Toss out the recycling dimensions --- we don't need them anymore
             processed_feature_dict = tensor_tree_map(
@@ -228,38 +102,38 @@ def main(args):
             )
             out = tensor_tree_map(lambda x: np.array(x.cpu()), out)
 
-            unrelaxed_protein = prep_output(
-                out,
-                processed_feature_dict,
-                feature_dict,
-                feature_processor,
-                args.config_preset,
-                args.multimer_ri_gap,
-                args.subtract_plddt
-            )
+            squeezed_feats = {k: v[0] for k, v in processed_feature_dict.items()}
+            squeezed_out = {
+                "final_atom_mask": out["final_atom_mask"][0],
+                "final_atom_positions": out["final_atom_positions"][0],
+                "plddt": out["plddt"][0],
+            }
+            # squeezed_out = {k: v[0] for k, v in out.items()}
+            # for k, v in out.items():
+            #     print("doing ", k)
+            #     try:
+            #         print(v.shape)
+            #     except:
+            #         print(f"failed for {k} with {v}")
+
+            unrelaxed_protein = prep_output(squeezed_out, squeezed_feats)
 
             unrelaxed_file_suffix = "_unrelaxed.pdb"
-            if args.cif_output:
-                unrelaxed_file_suffix = "_unrelaxed.cif"
             unrelaxed_output_path = os.path.join(
                 output_directory, f'{output_name}{unrelaxed_file_suffix}'
             )
 
             with open(unrelaxed_output_path, 'w') as fp:
-                if args.cif_output:
-                    fp.write(protein.to_modelcif(unrelaxed_protein))
-                else:
-                    fp.write(protein.to_pdb(unrelaxed_protein))
+                fp.write(protein.to_pdb(unrelaxed_protein))
 
             logger.info(f"Output written to {unrelaxed_output_path}...")
 
-            if not args.skip_relaxation:
+            if not skip_relaxation:
                 # Relax the prediction.
                 logger.info(f"Running relaxation on {unrelaxed_output_path}...")
-                relax_protein(config, args.model_device, unrelaxed_protein, output_directory, output_name,
-                              args.cif_output)
+                relax_protein(config, device_name, unrelaxed_protein, output_directory, output_name)
 
-            if args.save_outputs:
+            if save_outputs:
                 output_dict_path = os.path.join(
                     output_directory, f'{output_name}_output_dict.pkl'
                 )
@@ -270,104 +144,4 @@ def main(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "fasta_dir", type=str,
-        help="Path to directory containing FASTA files, one sequence per file"
-    )
-    parser.add_argument(
-        "template_mmcif_dir", type=str,
-    )
-    parser.add_argument(
-        "--use_precomputed_alignments", type=str, default=None,
-        help="""Path to alignment directory. If provided, alignment computation 
-                is skipped and database path arguments are ignored."""
-    )
-    parser.add_argument(
-        "--use_single_seq_mode", action="store_true", default=False,
-        help="""Use single sequence embeddings instead of MSAs."""
-    )
-    parser.add_argument(
-        "--output_dir", type=str, default=os.getcwd(),
-        help="""Name of the directory in which to output the prediction""",
-    )
-    parser.add_argument(
-        "--model_device", type=str, default="cpu",
-        help="""Name of the device on which to run the model. Any valid torch
-             device name is accepted (e.g. "cpu", "cuda:0")"""
-    )
-    parser.add_argument(
-        "--config_preset", type=str, default="model_1",
-        help="""Name of a model config preset defined in openfold/config.py"""
-    )
-    parser.add_argument(
-        "--jax_param_path", type=str, default=None,
-        help="""Path to JAX model parameters. If None, and openfold_checkpoint_path
-             is also None, parameters are selected automatically according to 
-             the model name from openfold/resources/params"""
-    )
-    parser.add_argument(
-        "--openfold_checkpoint_path", type=str, default=None,
-        help="""Path to OpenFold checkpoint. Can be either a DeepSpeed 
-             checkpoint directory or a .pt file"""
-    )
-    parser.add_argument(
-        "--save_outputs", action="store_true", default=False,
-        help="Whether to save all model outputs, including embeddings, etc."
-    )
-    parser.add_argument(
-        "--cpus", type=int, default=4,
-        help="""Number of CPUs with which to run alignment tools"""
-    )
-    parser.add_argument(
-        "--preset", type=str, default='full_dbs',
-        choices=('reduced_dbs', 'full_dbs')
-    )
-    parser.add_argument(
-        "--output_postfix", type=str, default=None,
-        help="""Postfix for output prediction filenames"""
-    )
-    parser.add_argument(
-        "--data_random_seed", type=int, default=None
-    )
-    parser.add_argument(
-        "--skip_relaxation", action="store_true", default=False,
-    )
-    parser.add_argument(
-        "--multimer_ri_gap", type=int, default=200,
-        help="""Residue index offset between multiple sequences, if provided"""
-    )
-    parser.add_argument(
-        "--trace_model", action="store_true", default=False,
-        help="""Whether to convert parts of each model to TorchScript.
-                Significantly improves runtime at the cost of lengthy
-                'compilation.' Useful for large batch jobs."""
-    )
-    parser.add_argument(
-        "--subtract_plddt", action="store_true", default=False,
-        help=""""Whether to output (100 - pLDDT) in the B-factor column instead
-                 of the pLDDT itself"""
-    )
-    parser.add_argument(
-        "--long_sequence_inference", action="store_true", default=False,
-        help="""enable options to reduce memory usage at the cost of speed, helps longer sequences fit into GPU memory, see the README for details"""
-    )
-    parser.add_argument(
-        "--cif_output", action="store_true", default=False,
-        help="Output predicted models in ModelCIF format instead of PDB format (default)"
-    )
-    args = parser.parse_args()
-
-    if args.jax_param_path is None and args.openfold_checkpoint_path is None:
-        args.jax_param_path = os.path.join(
-            "openfold", "resources", "params",
-            "params_" + args.config_preset + ".npz"
-        )
-
-    if args.model_device == "cpu" and torch.cuda.is_available():
-        logging.warning(
-            """The model is being run on CPU. Consider specifying 
-            --model_device for better performance"""
-        )
-
-    main(args)
+    manual_main()

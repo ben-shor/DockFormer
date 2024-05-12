@@ -22,7 +22,6 @@ from typing import Dict, Optional, Tuple
 from openfold.np import residue_constants
 from openfold.utils.rigid_utils import Rotation, Rigid
 from openfold.utils.geometry.vector import Vec3Array, euclidean_distance
-from openfold.utils.all_atom_multimer import get_rc_tensor
 from openfold.utils.tensor_utils import (
     tree_map,
     masked_mean,
@@ -1214,19 +1213,10 @@ def find_structural_violations(
 
     # TODO: Consolidate monomer/multimer modes
     asym_id = batch.get("asym_id")
-    if asym_id is not None:
-        residx_atom14_to_atom37 = get_rc_tensor(
-            residue_constants.RESTYPE_ATOM14_TO_ATOM37, batch["aatype"]
-        )
-        atom14_atom_radius = (
-            batch["atom14_atom_exists"]
-            * atomtype_radius[residx_atom14_to_atom37.long()]
-        )
-    else:
-        atom14_atom_radius = (
-            batch["atom14_atom_exists"]
-            * atomtype_radius[batch["residx_atom14_to_atom37"]]
-        )
+    atom14_atom_radius = (
+        batch["atom14_atom_exists"]
+        * atomtype_radius[batch["residx_atom14_to_atom37"]]
+    )
 
     # Compute the between residue clash loss.
     between_residue_clashes = between_residue_clash_loss(
@@ -1592,39 +1582,6 @@ def experimentally_resolved_loss(
     return loss
 
 
-def masked_msa_loss(logits, true_msa, bert_mask, num_classes, eps=1e-8, **kwargs):
-    """
-    Computes BERT-style masked MSA loss. Implements subsection 1.9.9.
-
-    Args:
-        logits: [*, N_seq, N_res, 23] predicted residue distribution
-        true_msa: [*, N_seq, N_res] true MSA
-        bert_mask: [*, N_seq, N_res] MSA mask
-    Returns:
-        Masked MSA loss
-    """
-    errors = softmax_cross_entropy(
-        logits, torch.nn.functional.one_hot(true_msa, num_classes=num_classes)
-    )
-
-    # FP16-friendly averaging. Equivalent to:
-    # loss = (
-    #     torch.sum(errors * bert_mask, dim=(-1, -2)) /
-    #     (eps + torch.sum(bert_mask, dim=(-1, -2)))
-    # )
-    loss = errors * bert_mask
-    loss = torch.sum(loss, dim=-1)
-    scale = 0.5
-    denom = eps + torch.sum(scale * bert_mask, dim=(-1, -2))
-    loss = loss / denom[..., None]
-    loss = torch.sum(loss, dim=-1)
-    loss = loss * scale
-
-    loss = torch.mean(loss)
-
-    return loss
-
-
 def chain_center_of_mass_loss(
     all_atom_pred_pos: torch.Tensor,
     all_atom_positions: torch.Tensor,
@@ -1728,10 +1685,6 @@ class AlphaFoldLoss(nn.Module):
                 all_atom_pred_pos=out["final_atom_positions"],
                 **{**batch, **self.config.plddt_loss},
             ),
-            # "masked_msa": lambda: masked_msa_loss(
-            #     logits=out["masked_msa_logits"],
-            #     **{**batch, **self.config.masked_msa},
-            # ),
             "supervised_chi": lambda: supervised_chi_loss(
                 out["sm"]["angles"],
                 out["sm"]["unnormalized_angles"],

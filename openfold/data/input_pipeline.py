@@ -25,26 +25,7 @@ def nonensembled_transform_fns(common_cfg, mode_cfg):
     transforms = [
         data_transforms.cast_to_64bit_ints,
         data_transforms.squeeze_features,
-        # TODO bshor: maybe should not comment those
-        # data_transforms.randomly_replace_msa_with_unknown(0.0),
-        # data_transforms.make_seq_mask,
-        # data_transforms.make_msa_mask,
-        # data_transforms.make_hhblits_profile,
     ]
-    # if common_cfg.use_templates:
-    #     transforms.extend(
-    #         [
-    #             data_transforms.fix_templates_aatype,
-    #             data_transforms.make_template_mask,
-    #             data_transforms.make_pseudo_beta("template_"),
-    #         ]
-    #     )
-    #     if common_cfg.use_template_torsion_angles:
-    #         transforms.extend(
-    #             [
-    #                 data_transforms.atom37_to_torsion_angles("template_"),
-    #             ]
-    #         )
 
     transforms.extend(
         [
@@ -52,17 +33,17 @@ def nonensembled_transform_fns(common_cfg, mode_cfg):
         ]
     )
 
-    if mode_cfg.supervised:
-        transforms.extend(
-            [
-                data_transforms.make_atom14_positions,
-                data_transforms.atom37_to_frames,
-                data_transforms.atom37_to_torsion_angles(""),
-                data_transforms.make_pseudo_beta(""),
-                data_transforms.get_backbone_frames,
-                data_transforms.get_chi_angles,
-            ]
-        )
+    # if mode_cfg.supervised:
+    transforms.extend(
+        [
+            data_transforms.make_atom14_positions,
+            data_transforms.atom37_to_frames,
+            data_transforms.atom37_to_torsion_angles(""),
+            data_transforms.make_pseudo_beta(),
+            data_transforms.get_backbone_frames,
+            data_transforms.get_chi_angles,
+        ]
+    )
 
     return transforms
 
@@ -70,78 +51,14 @@ def nonensembled_transform_fns(common_cfg, mode_cfg):
 def ensembled_transform_fns(common_cfg, mode_cfg, ensemble_seed):
     """Input pipeline data transformers that can be ensembled and averaged."""
     transforms = []
-
-    # if mode_cfg.block_delete_msa:
-    #     transforms.append(data_transforms.block_delete_msa(common_cfg.block_delete_msa))
-    #
-    # if "max_distillation_msa_clusters" in mode_cfg:
-    #     transforms.append(
-    #         data_transforms.sample_msa_distillation(
-    #             mode_cfg.max_distillation_msa_clusters
-    #         )
-    #     )
-
-    # if common_cfg.reduce_msa_clusters_by_max_templates:
-    #     pad_msa_clusters = mode_cfg.max_msa_clusters - mode_cfg.max_templates
-    # else:
-    #     pad_msa_clusters = mode_cfg.max_msa_clusters
-
-    # max_msa_clusters = pad_msa_clusters
-    # max_extra_msa = mode_cfg.max_extra_msa
-    #
-    msa_seed = None
-    if(not common_cfg.resample_msa_in_recycling):
-        msa_seed = ensemble_seed
-    #
-    # transforms.append(
-    #     data_transforms.sample_msa(
-    #         max_msa_clusters,
-    #         keep_extra=True,
-    #         seed=msa_seed,
-    #     )
-    # )
-
-    # if "masked_msa" in common_cfg:
-    #     # Masked MSA should come *before* MSA clustering so that
-    #     # the clustering and full MSA profile do not leak information about
-    #     # the masked locations and secret corrupted locations.
-    #     transforms.append(
-    #         data_transforms.make_masked_msa(
-    #             common_cfg.masked_msa, mode_cfg.masked_msa_replace_fraction,
-    #             seed=(msa_seed + 1) if msa_seed else None,
-    #         )
-    #     )
-
-    # transforms.append(data_transforms.make_msa_feat())
     transforms.append(data_transforms.make_target_feat())
 
     crop_feats = dict(common_cfg.feat)
 
     if mode_cfg.fixed_size:
         transforms.append(data_transforms.select_feat(list(crop_feats)))
-        # TODO bshor: maybe should not comment those
-        # transforms.append(
-        #     data_transforms.random_crop_to_size(
-        #         mode_cfg.crop_size,
-        #         mode_cfg.max_templates,
-        #         crop_feats,
-        #         mode_cfg.subsample_templates,
-        #         seed=ensemble_seed + 1,
-        #     )
-        # )
-        # transforms.append(
-        #     data_transforms.make_fixed_size(
-        #         crop_feats,
-        #         pad_msa_clusters,
-        #         mode_cfg.max_extra_msa,
-        #         mode_cfg.crop_size,
-        #         mode_cfg.max_templates,
-        #     )
-        # )
-    else:
-        transforms.append(
-            data_transforms.crop_templates(mode_cfg.max_templates)
-        )
+        # TODO bshor: restore transforms for training on cropped proteins, need to handle pocket somehow
+        # if so, look for random_crop_to_size and make_fixed_size in data_transforms.py
 
     return transforms
 
@@ -162,10 +79,6 @@ def process_tensors_from_config(tensors, common_cfg, mode_cfg):
         fn = compose(fns)
         d["ensemble_index"] = i
         return fn(d)
-
-    no_templates = True
-    if("template_aatype" in tensors):
-        no_templates = tensors["template_aatype"].shape[0] == 0
 
     nonensembled = nonensembled_transform_fns(
         common_cfg,

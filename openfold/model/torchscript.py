@@ -51,8 +51,7 @@ def script_preset_(model: torch.nn.Module):
             Attention,
             GlobalAttention,
             EvoformerBlock,
-            #TemplatePairStackBlock,
-        ], 
+        ],
         attempt_trace=False,
         batch_dims=None,
     ) 

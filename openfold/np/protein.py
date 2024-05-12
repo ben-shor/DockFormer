@@ -613,12 +613,9 @@ def from_prediction(
     def _maybe_remove_leading_dim(arr: np.ndarray) -> np.ndarray:
         return arr[0] if remove_leading_feature_dimension else arr
 
-    if 'asym_id' in features:
-        chain_index = _maybe_remove_leading_dim(features["asym_id"]) - 1
-    else:
-        chain_index = np.zeros_like(
-            _maybe_remove_leading_dim(features["aatype"])
-        )
+    chain_index = np.zeros_like(
+        _maybe_remove_leading_dim(features["aatype"])
+    )
 
     if b_factors is None:
         b_factors = np.zeros_like(result["final_atom_mask"])

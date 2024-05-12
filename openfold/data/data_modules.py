@@ -99,35 +99,16 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
 
             input_feats = self.feature_pipeline.process_features(input_structure, self.mode)
             real_feats = self.feature_pipeline.process_features(real_structure, self.mode)
+            feats = {
+                **real_feats,  # most of the properties are used for loss (only seq and input_psuedo_beta are not)
+                "input_pseudo_beta": input_feats["pseudo_beta"],
+                # "resolution": np.array([float(input_data["resolution"])]).astype(np.float32),
+            }
 
         else:
-            # TODO bshor: implement inference mode
-            raise NotImplementedError
-
-
-        # feats = {
-        #     "aatype": input_feats["aatype"],
-        #     "residue_index": input_feats["residue_index"],
-        #     "input_atom_positions": input_feats["atom_positions"],
-        #     "target_feat": input_feats["target_feat"],  # the representation of the sequence in 1-hot encoding
-        #
-        #     "gt_atom_positions": real_feats["atom_positions"],
-        #     "gt_aatype": real_feats["aatype"],
-        #     "gt_residue_index": real_feats["residue_index"],
-        #     "resolution": input_data["resolution"],
-        #     # needed for loos
-        #     "pseudo_beta": real_feats["pseudo_beta"],
-        #
-        # }
-        # feats = {
-        #     "input": input_feats,
-        #     "real": real_feats
-        # }
-        feats = {
-            **real_feats,
-            "input_pseudo_beta": input_feats["pseudo_beta"],
-            # "resolution": np.array([float(input_data["resolution"])]).astype(np.float32),
-        }
+            input_structure = self.data_pipeline.process_pdb(pdb_path=input_data["input_structure"])
+            input_feats = self.feature_pipeline.process_features(input_structure, self.mode)
+            feats = {**input_feats, "input_pseudo_beta": input_feats["pseudo_beta"]}
 
         feats["batch_idx"] = torch.tensor(
             [idx for _ in range(feats["aatype"].shape[-1])],
