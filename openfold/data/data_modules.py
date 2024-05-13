@@ -65,7 +65,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
                     if i not in loaded:
                         return False
                 if self.mode != "predict":
-                    for i in ["real_structure", "resolution"]:
+                    for i in ["gt_structure", "resolution"]:
                         if i not in loaded:
                             return False
             except json.JSONDecodeError:
@@ -75,7 +75,9 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
     def get_metadata_for_idx(self, idx: int) -> dict:
         input_path = os.path.join(self.data_dir, self._all_input_files[idx])
         input_data = json.load(open(input_path, "r"))
-        input_structure = self.data_pipeline.process_pdb(pdb_path=input_data["input_structure"])
+        parent_dir = os.path.dirname(self.data_dir)
+        input_pdb_path = os.path.join(parent_dir, input_data["input_structure"])
+        input_structure = self.data_pipeline.process_pdb(pdb_path=input_pdb_path)
         metadata = {
             "resolution": input_data["resolution"],
             "seq": input_structure["sequence"][0].decode("ascii"),
@@ -88,8 +90,12 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
 
         if self.mode == 'train' or self.mode == 'eval':
             # the input structure should have the complete sequence
-            input_structure = self.data_pipeline.process_pdb(pdb_path=input_data["input_structure"])
-            real_structure = self.data_pipeline.process_pdb(pdb_path=input_data["real_structure"])
+            parent_dir = os.path.dirname(self.data_dir)
+            input_pdb_path = os.path.join(parent_dir, input_data["input_structure"])
+            gt_pdb_path = os.path.join(parent_dir, input_data["gt_structure"])
+
+            input_structure = self.data_pipeline.process_pdb(pdb_path=input_pdb_path)
+            gt_structure = self.data_pipeline.process_pdb(pdb_path=gt_pdb_path)
 
             # TODO bshor: align the input and real structures, as the input has all reidues, and the real probably doesn't
             # this can maybe also happen in preprocessing, but then we can't use the same af structure for different
@@ -98,9 +104,9 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
             # maybe for start can just do: input_feats["pseudo_beta"] = input_feats["pseudo_beta"][real_feats["residue_index"]]
 
             input_feats = self.feature_pipeline.process_features(input_structure, self.mode)
-            real_feats = self.feature_pipeline.process_features(real_structure, self.mode)
+            gt_feats = self.feature_pipeline.process_features(gt_structure, self.mode)
             feats = {
-                **real_feats,  # most of the properties are used for loss (only seq and input_psuedo_beta are not)
+                **gt_feats,  # most of the properties are used for loss (only seq and input_psuedo_beta are not)
                 "input_pseudo_beta": input_feats["pseudo_beta"],
                 # "resolution": np.array([float(input_data["resolution"])]).astype(np.float32),
             }

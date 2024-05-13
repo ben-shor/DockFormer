@@ -243,8 +243,8 @@ def manual_main():
     data_module = OpenFoldDataModule(
         config=config.data,
         batch_seed=seed,
-        train_data_dir="/Users/benshor/Documents/Data/202401_pred_affinity/sample_input_folders/json",
-        val_data_dir="/Users/benshor/Documents/Data/202401_pred_affinity/sample_input_folders/json",
+        train_data_dir="/Users/benshor/Documents/Data/202401_pred_affinity/processed_pdbbind/train_json",
+        val_data_dir="/Users/benshor/Documents/Data/202401_pred_affinity/processed_pdbbind/val_json",
         train_epoch_len=100,
     )
 
