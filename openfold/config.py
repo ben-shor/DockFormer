@@ -211,7 +211,6 @@ config = mlc.ConfigDict(
                 "no_heads_msa": 8,
                 "no_heads_pair": 4,
                 "no_blocks": 48,
-                # "no_blocks": 2,
                 "transition_n": 4,
                 "msa_dropout": 0.15,
                 "pair_dropout": 0.25,

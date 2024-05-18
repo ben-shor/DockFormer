@@ -1,7 +1,6 @@
 name: evodocker-venv
 channels:
   - conda-forge
-#  - bioconda
   - pytorch
 dependencies:
   - python=3.9
@@ -11,11 +10,9 @@ dependencies:
   - openmm=7.7
   - pdbfixer
   - cudatoolkit==11.3.*
-#  - pytorch-lightning==1.5.10
   - lightning=2.*
   - biopython==1.79
   - numpy==1.21
-#  - pandas==2.0.1
   - PyYAML==5.4.1
   - requests
   - scipy==1.7
@@ -27,10 +24,6 @@ dependencies:
   - ml-collections
   - aria2
   - git
-#  - bioconda::hmmer==3.3.2
-#  - bioconda::hhsuite==3.3.0
-#  - bioconda::kalign2==2.04
-#  - pytorch::pytorch=1.12.*
 #  - pytorch::pytorch=2.3.0
   - pip:
       - torch --index-url https://download.pytorch.org/whl/cu118

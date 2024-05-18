@@ -120,6 +120,7 @@ class AlphaFold(nn.Module):
         # n_seq = feats["msa_feat"].shape[-3]
         n_seq = 1
         device = feats["target_feat"].device
+        print("doing sample of size", feats["target_feat"].shape)
 
         # Controls whether the model uses in-place operations throughout
         # The dual condition accounts for activation checkpoints
@@ -140,7 +141,6 @@ class AlphaFold(nn.Module):
             feats["input_pseudo_beta"],
             inplace_safe=inplace_safe,
         )
-
 
         # Unpack the recycling embeddings. Removing them from the list allows 
         # them to be freed further down in this function, saving memory

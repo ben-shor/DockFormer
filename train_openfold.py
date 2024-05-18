@@ -1,11 +1,11 @@
-import argparse
+from env_consts import TRAIN_DIR, VAL_DIR, TRAIN_OUTPUT_DIR, CKPT_PATH
 import os
 
 from lightning.pytorch import seed_everything
 import lightning.pytorch as pl
 import torch
-from lightning.pytorch.callbacks import LearningRateMonitor
-from lightning.pytorch.loggers import CSVLogger
+from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
+from lightning.pytorch.loggers import CSVLogger, WandbLogger
 
 from openfold.config import model_config
 from openfold.data.data_modules import OpenFoldDataModule
@@ -225,7 +225,7 @@ class OpenFoldWrapper(pl.LightningModule):
 def manual_main():
     seed = 42
     seed_everything(seed, workers=True)
-    output_dir = "/Users/benshor/Documents/Data/202401_pred_affinity/train_202405"
+    output_dir = TRAIN_OUTPUT_DIR
 
     config = model_config(
         "initial_training",
@@ -237,21 +237,32 @@ def manual_main():
     device_name = "cuda" if torch.cuda.is_available() else "cpu"
     model_module = OpenFoldWrapper(config)
 
-    # TorchScript components of the model
-    # script_preset_(model_module)
+    # torch.cuda.memory._record_memory_history()
 
     data_module = OpenFoldDataModule(
         config=config.data,
         batch_seed=seed,
-        train_data_dir="/Users/benshor/Documents/Data/202401_pred_affinity/processed_pdbbind/train_json",
-        val_data_dir="/Users/benshor/Documents/Data/202401_pred_affinity/processed_pdbbind/val_json",
-        train_epoch_len=100,
+        train_data_dir=TRAIN_DIR,
+        val_data_dir=VAL_DIR,
+        train_epoch_len=1000,
     )
+
+    if CKPT_PATH:
+        sd = torch.load(CKPT_PATH)
+        last_global_step = int(sd['global_step'])
+        model_module.resume_last_lr_step(last_global_step)
 
     data_module.prepare_data()
     data_module.setup("fit")
 
     callbacks = []
+
+    mc = ModelCheckpoint(
+        every_n_epochs=1,
+        auto_insert_metric_name=False,
+        save_top_k=1,
+    )
+    callbacks.append(mc)
 
     if True: # (args.log_performance):
         # global_batch_size = args.num_nodes * args.gpus
@@ -269,21 +280,30 @@ def manual_main():
     csv_logger = CSVLogger("logs", name="evodocker_try1", flush_logs_every_n_steps=1)
     loggers.append(csv_logger)
 
+    if True:
+        wdb_logger = WandbLogger(
+            project="EvoDocker1",
+            save_dir=TRAIN_OUTPUT_DIR,
+        )
+        loggers.append(wdb_logger)
+
     trainer = pl.Trainer(
         accelerator=device_name,
         default_root_dir=output_dir,
         strategy="auto",
+        reload_dataloaders_every_n_epochs=1,
+        check_val_every_n_epoch=1,
         callbacks=callbacks,
         logger=loggers,
     )
 
-    ckpt_path = None
-
     trainer.fit(
         model_module,
         datamodule=data_module,
-        ckpt_path=ckpt_path,
+        ckpt_path=CKPT_PATH,
     )
+
+    # torch.cuda.memory._dump_snapshot("my_train_snapshot.pickle")
 
 
 def bool_type(bool_str: str):
@@ -297,5 +317,4 @@ def bool_type(bool_str: str):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
     manual_main()
