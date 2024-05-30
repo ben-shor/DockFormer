@@ -64,7 +64,6 @@ c_s = mlc.FieldReference(384, field_type=int)
 blocks_per_ckpt = mlc.FieldReference(None, field_type=int)
 chunk_size = mlc.FieldReference(4, field_type=int)
 aux_distogram_bins = mlc.FieldReference(64, field_type=int)
-tm_enabled = mlc.FieldReference(False, field_type=bool)
 eps = mlc.FieldReference(1e-8, field_type=float)
 tune_chunk_size = mlc.FieldReference(True, field_type=bool)
 
@@ -106,7 +105,7 @@ config = mlc.ConfigDict(
                     "rigidgroups_gt_frames": [NUM_RES, None, None, None],
                     "seq_length": [],
                     "seq_mask": [NUM_RES],
-                    "target_feat": [NUM_RES, None],
+                    "protein_target_feat": [NUM_RES, None],
                     "use_clamped_fape": [],
                 },
                 "max_recycling_iters": 3,
@@ -183,7 +182,9 @@ config = mlc.ConfigDict(
         "model": {
             "_mask_trans": False,
             "structure_input_embedder": {
-                "tf_dim": 22,
+                "protein_tf_dim": 22,
+                "ligand_tf_dim": 10,
+                "ligand_bond_dim": 5,
                 "c_z": c_z,
                 "c_m": c_m,
                 "relpos_k": 32,
@@ -250,11 +251,6 @@ config = mlc.ConfigDict(
                     "c_z": c_z,
                     "no_bins": aux_distogram_bins,
                 },
-                "tm": {
-                    "c_z": c_z,
-                    "no_bins": aux_distogram_bins,
-                    "enabled": tm_enabled,
-                },
                 "experimentally_resolved": {
                     "c_s": c_s,
                     "c_out": 37,
@@ -280,6 +276,10 @@ config = mlc.ConfigDict(
                 "max_bin": 21.6875,
                 "no_bins": 64,
                 "eps": eps,  # 1e-6,
+                "weight": 0.3,
+            },
+            "positions_distogram": {
+                "max_dist": 20.0,
                 "weight": 0.3,
             },
             "experimentally_resolved": {
@@ -321,16 +321,8 @@ config = mlc.ConfigDict(
                 "clash_overlap_tolerance": 1.5,
                 "average_clashes": False,
                 "eps": eps,  # 1e-6,
-                "weight": 0.0,
-            },
-            "tm": {
-                "max_bin": 31,
-                "no_bins": 64,
-                "min_resolution": 0.1,
-                "max_resolution": 3.0,
-                "eps": eps,  # 1e-8,
-                "weight": 0.,
-                "enabled": tm_enabled,
+                # TODO bshor: this should only be enabled for fine-tuning?
+                "weight": 0.01,
             },
             "chain_center_of_mass": {
                 "clamp_distance": -4.0,

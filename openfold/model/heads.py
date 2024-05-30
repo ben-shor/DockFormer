@@ -41,11 +41,6 @@ class AuxiliaryHeads(nn.Module):
             **config["experimentally_resolved"],
         )
 
-        if config.tm.enabled:
-            self.tm = TMScoreHead(
-                **config.tm,
-            )
-
         self.config = config
 
     def forward(self, outputs):
@@ -62,30 +57,7 @@ class AuxiliaryHeads(nn.Module):
         experimentally_resolved_logits = self.experimentally_resolved(
             outputs["single"]
         )
-        aux_out[
-            "experimentally_resolved_logits"
-        ] = experimentally_resolved_logits
-
-        if self.config.tm.enabled:
-            tm_logits = self.tm(outputs["pair"])
-            aux_out["tm_logits"] = tm_logits
-            aux_out["ptm_score"] = compute_tm(
-                tm_logits, **self.config.tm
-            )
-            asym_id = outputs.get("asym_id")
-            if asym_id is not None:
-                aux_out["iptm_score"] = compute_tm(
-                    tm_logits, asym_id=asym_id, interface=True, **self.config.tm
-                )
-                aux_out["weighted_ptm_score"] = (self.config.tm["iptm_weight"] * aux_out["iptm_score"]
-                                                 + self.config.tm["ptm_weight"] * aux_out["ptm_score"])
-
-            aux_out.update(
-                compute_predicted_aligned_error(
-                    tm_logits,
-                    **self.config.tm,
-                )
-            )
+        aux_out["experimentally_resolved_logits"] = experimentally_resolved_logits
 
         return aux_out
 
@@ -158,39 +130,6 @@ class DistogramHead(nn.Module):
                 return self._forward(z.float())
         else:
             return self._forward(z)
-
-
-class TMScoreHead(nn.Module):
-    """
-    For use in computation of TM-score, subsection 1.9.7
-    """
-
-    def __init__(self, c_z, no_bins, **kwargs):
-        """
-        Args:
-            c_z:
-                Input channel dimension
-            no_bins:
-                Number of bins
-        """
-        super(TMScoreHead, self).__init__()
-
-        self.c_z = c_z
-        self.no_bins = no_bins
-
-        self.linear = Linear(self.c_z, self.no_bins, init="final")
-
-    def forward(self, z):
-        """
-        Args:
-            z:
-                [*, N_res, N_res, C_z] pairwise embedding
-        Returns:
-            [*, N_res, N_res, no_bins] prediction
-        """
-        # [*, N, N, no_bins]
-        logits = self.linear(z)
-        return logits
 
 
 class ExperimentallyResolvedHead(nn.Module):

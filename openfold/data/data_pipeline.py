@@ -16,7 +16,11 @@
 import os
 from typing import Optional, MutableMapping
 import numpy as np
+import torch
+from torch import nn
+
 from openfold.np import residue_constants, protein
+from rdkit import Chem
 
 FeatureDict = MutableMapping[str, np.ndarray]
 
@@ -87,6 +91,29 @@ def make_pdb_features(
     return pdb_feats
 
 
+POSSIBLE_ATOM_TYPES = ["C", "N", "O", "S", "F", "P", "Cl", "Br", "I", "other"]
+def get_atom_features(atom: Chem.Atom):
+    if atom.GetSymbol() in POSSIBLE_ATOM_TYPES:
+        atom_type = POSSIBLE_ATOM_TYPES.index(atom.GetSymbol())
+    else:
+        atom_type = len(POSSIBLE_ATOM_TYPES) - 1  # Other
+
+    return {"atom_type": atom_type}
+
+
+POSSIBLE_BOND_TYPES = [Chem.rdchem.BondType.SINGLE, Chem.rdchem.BondType.DOUBLE, Chem.rdchem.BondType.TRIPLE,
+                       Chem.rdchem.BondType.AROMATIC, "other"]
+def get_bond_features(bond: Chem.Bond):
+    chem_bond_type = bond.GetBondType()
+    if chem_bond_type in POSSIBLE_BOND_TYPES:
+        bond_type = POSSIBLE_BOND_TYPES.index(chem_bond_type)
+    else:
+        print("Unknown bond type", chem_bond_type)
+        bond_type = len(POSSIBLE_BOND_TYPES) - 1  # Other
+
+    return {"bond_type": bond_type}
+
+
 class DataPipeline:
     """Assembles input features."""
     def __init__(
@@ -124,3 +151,45 @@ class DataPipeline:
         )
 
         return {**pdb_feats}
+
+    def process_smiles(self, smiles: str) -> FeatureDict:
+        ligand = Chem.MolFromSmiles(smiles)
+
+        # Add ligand atoms
+        atoms_features = []
+        atom_idx_to_atom_pos_idx = {}
+        for atom in ligand.GetAtoms():
+            atom_idx_to_atom_pos_idx[atom.GetIdx()] = len(atoms_features)
+            atoms_features.append(get_atom_features(atom))
+
+        atom_types = torch.tensor(np.array([atom["atom_type"] for atom in atoms_features], dtype=np.int64))
+        atom_types_one_hot = nn.functional.one_hot(atom_types, num_classes=len(POSSIBLE_ATOM_TYPES), )
+
+        ligand_bonds_feat = torch.zeros((len(atoms_features), len(atoms_features), len(POSSIBLE_BOND_TYPES)))
+        for bond in ligand.GetBonds():
+            atom1_idx = atom_idx_to_atom_pos_idx[bond.GetBeginAtomIdx()]
+            atom2_idx = atom_idx_to_atom_pos_idx[bond.GetEndAtomIdx()]
+            bond_features = get_bond_features(bond)
+            ligand_bonds_feat[atom1_idx, atom2_idx, bond_features["bond_type"]] = 1
+
+        return {
+            "ligand_target_feat": atom_types_one_hot.float(),
+            "ligand_bonds_feat": ligand_bonds_feat.float(),
+        }
+
+    def process_mol2(self, mol2_path: str) -> FeatureDict:
+        """
+            Assembles features for a ligand in a mol2 file.
+        """
+        ligand = Chem.MolFromMol2File(mol2_path)
+        assert ligand is not None, f"Failed to parse ligand from {mol2_path}"
+
+        conf = ligand.GetConformer()
+        positions = torch.tensor(conf.GetPositions())
+
+        return {
+            **self.process_smiles(Chem.MolToSmiles(ligand)),
+            "gt_ligand_positions": positions.float()
+        }
+
+

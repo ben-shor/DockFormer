@@ -664,10 +664,11 @@ class StructureModule(nn.Module):
             self.epsilon,
         )
 
-    def _forward_monomer(
+    def forward(
         self,
         evoformer_output_dict,
         aatype,
+        ligand_start_ind: int,
         mask=None,
         inplace_safe=False,
         _offload_inference=False,
@@ -711,8 +712,8 @@ class StructureModule(nn.Module):
         s = self.linear_in(s)
 
         # [*, N]
-        rigids = Rigid.identity(
-            s.shape[:-1], 
+        combined_rigids = Rigid.identity(
+            s.shape[:-1],
             s.dtype, 
             s.device, 
             self.training,
@@ -724,7 +725,7 @@ class StructureModule(nn.Module):
             s = s + self.ipa(
                 s, 
                 z, 
-                rigids, 
+                combined_rigids,
                 mask, 
                 inplace_safe=inplace_safe,
                 _offload_inference=_offload_inference, 
@@ -735,17 +736,28 @@ class StructureModule(nn.Module):
             s = self.transition(s)
            
             # [*, N]
-            rigids = rigids.compose_q_update_vec(self.bb_update(s))
+
+            # [*, N_res, 6] vector of translations and rotations
+            bb_update_output = self.bb_update(s)
+
+            # zero out ligand rotations
+            bb_update_output[:, ligand_start_ind:, :3] = 0
+
+            combined_rigids = combined_rigids.compose_q_update_vec(bb_update_output)
+
+            protein_rigids = combined_rigids[:, :ligand_start_ind]
+            ligand_rigids = combined_rigids[:, ligand_start_ind:]
+            ligand_xyz = ligand_rigids.get_trans()
 
             # To hew as closely as possible to AlphaFold, we convert our
             # quaternion-based transformations to rotation-matrix ones
             # here
             backb_to_global = Rigid(
                 Rotation(
-                    rot_mats=rigids.get_rots().get_rot_mats(), 
+                    rot_mats=protein_rigids.get_rots().get_rot_mats(),
                     quats=None
                 ),
-                rigids.get_trans(),
+                protein_rigids.get_trans(),
             )
 
             backb_to_global = backb_to_global.scale_translation(
@@ -754,6 +766,10 @@ class StructureModule(nn.Module):
 
             # [*, N, 7, 2]
             unnormalized_angles, angles = self.angle_resnet(s, s_initial)
+
+            # clip out ligand angles - we don't need them
+            unnormalized_angles = unnormalized_angles[:, :ligand_start_ind, :]
+            angles = angles[:, :ligand_start_ind, :]
 
             all_frames_to_global = self.torsion_angles_to_frames(
                 backb_to_global,
@@ -766,7 +782,7 @@ class StructureModule(nn.Module):
                 aatype,
             )
 
-            scaled_rigids = rigids.scale_translation(self.trans_scale_factor)
+            scaled_rigids = protein_rigids.scale_translation(self.trans_scale_factor)
             
             preds = {
                 "frames": scaled_rigids.to_tensor_7(),
@@ -774,12 +790,13 @@ class StructureModule(nn.Module):
                 "unnormalized_angles": unnormalized_angles,
                 "angles": angles,
                 "positions": pred_xyz,
+                "ligand_atom_positions": ligand_xyz,
                 "states": s,
             }
 
             outputs.append(preds)
 
-            rigids = rigids.stop_rot_gradient()
+            combined_rigids = combined_rigids.stop_rot_gradient()
 
         del z, z_reference_list
 
@@ -790,31 +807,6 @@ class StructureModule(nn.Module):
 
         outputs = dict_multimap(torch.stack, outputs)
         outputs["single"] = s
-
-        return outputs
-
-    def forward(
-        self,
-        evoformer_output_dict,
-        aatype,
-        mask=None,
-        inplace_safe=False,
-        _offload_inference=False,
-    ):
-        """
-        Args:
-            s:
-                [*, N_res, C_s] single representation
-            z:
-                [*, N_res, N_res, C_z] pair representation
-            aatype:
-                [*, N_res] amino acid indices
-            mask:
-                Optional [*, N_res] sequence mask
-        Returns:
-            A dictionary of outputs
-        """
-        outputs = self._forward_monomer(evoformer_output_dict, aatype, mask, inplace_safe, _offload_inference)
 
         return outputs
 

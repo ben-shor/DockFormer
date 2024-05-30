@@ -129,7 +129,7 @@ def make_target_feat(protein):
         aatype_1hot,  # Everyone gets the original sequence.
     ]
 
-    protein["target_feat"] = torch.cat(target_feat, dim=-1)
+    protein["protein_target_feat"] = torch.cat(target_feat, dim=-1)
 
     # TODO bshor: should I use the masks?
     protein["seq_mask"] = torch.ones(

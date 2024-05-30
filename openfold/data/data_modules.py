@@ -88,39 +88,79 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         input_path = os.path.join(self.data_dir, self._all_input_files[idx])
         input_data = json.load(open(input_path, "r"))
 
+        num_recycles = self.config.common.max_recycling_iters + 1
+
         if self.mode == 'train' or self.mode == 'eval':
             # the input structure should have the complete sequence
             parent_dir = os.path.dirname(self.data_dir)
             input_pdb_path = os.path.join(parent_dir, input_data["input_structure"])
             gt_pdb_path = os.path.join(parent_dir, input_data["gt_structure"])
+            gt_mol2_path = os.path.join(parent_dir, input_data["gt_mol2"])
 
             input_structure = self.data_pipeline.process_pdb(pdb_path=input_pdb_path)
             gt_structure = self.data_pipeline.process_pdb(pdb_path=gt_pdb_path)
 
-            # TODO bshor: align the input and real structures, as the input has all reidues, and the real probably doesn't
-            # this can maybe also happen in preprocessing, but then we can't use the same af structure for different
-            # real structures
-
-            # maybe for start can just do: input_feats["pseudo_beta"] = input_feats["pseudo_beta"][real_feats["residue_index"]]
-
             input_feats = self.feature_pipeline.process_features(input_structure, self.mode)
             gt_feats = self.feature_pipeline.process_features(gt_structure, self.mode)
+
+            ligand_feats = self.data_pipeline.process_mol2(mol2_path=gt_mol2_path)
+
+            # apply recycling to ligand features
+            ligand_feats["ligand_target_feat"] = ligand_feats["ligand_target_feat"].\
+                unsqueeze(-1).repeat(1, 1, num_recycles)
+
+            ligand_feats["ligand_bonds_feat"] = ligand_feats["ligand_bonds_feat"]. \
+                unsqueeze(-1).repeat(1, 1, 1, num_recycles)
+
+            ligand_feats["gt_ligand_positions"] = ligand_feats["gt_ligand_positions"]. \
+                unsqueeze(-1).repeat(1, 1, num_recycles)
+
+            n_res = gt_feats["protein_target_feat"].shape[0]
+            n_lig = ligand_feats["ligand_target_feat"].shape[0]
+
+            protein_lig_seq_mask = torch.cat([gt_feats["seq_mask"], torch.ones((n_lig, 4))], dim=0)
+            protein_lig_msa_mask = torch.cat([gt_feats["msa_mask"], torch.ones((n_lig, 4))], dim=0)
+
             feats = {
                 **gt_feats,  # most of the properties are used for loss (only seq and input_psuedo_beta are not)
+                "protein_lig_seq_mask": protein_lig_seq_mask,
+                "protein_lig_msa_mask": protein_lig_msa_mask,
                 "input_pseudo_beta": input_feats["pseudo_beta"],
-                # "resolution": np.array([float(input_data["resolution"])]).astype(np.float32),
+                "ligand_target_feat": ligand_feats["ligand_target_feat"],
+                "ligand_bonds_feat": ligand_feats["ligand_bonds_feat"],
+                "gt_ligand_positions": ligand_feats["gt_ligand_positions"],
             }
 
         else:
             input_structure = self.data_pipeline.process_pdb(pdb_path=input_data["input_structure"])
             input_feats = self.feature_pipeline.process_features(input_structure, self.mode)
-            feats = {**input_feats, "input_pseudo_beta": input_feats["pseudo_beta"]}
+
+            ligand_feats = self.data_pipeline.process_smiles(smiles=input_data["ligand_smiles"])
+
+            # apply recycling to ligand features
+            ligand_feats["ligand_target_feat"] = ligand_feats["ligand_target_feat"]. \
+                unsqueeze(-1).repeat(1, 1, num_recycles)
+
+            ligand_feats["ligand_bonds_feat"] = ligand_feats["ligand_bonds_feat"]. \
+                unsqueeze(-1).repeat(1, 1, 1, num_recycles)
+
+            n_lig = ligand_feats["ligand_target_feat"].shape[0]
+
+            protein_lig_seq_mask = torch.cat([input_feats["seq_mask"], torch.ones((n_lig, num_recycles))], dim=0)
+            protein_lig_msa_mask = torch.cat([input_feats["msa_mask"], torch.ones((n_lig, num_recycles))], dim=0)
+
+            feats = {
+                **input_feats,
+                "protein_lig_seq_mask": protein_lig_seq_mask,
+                "protein_lig_msa_mask": protein_lig_msa_mask,
+                "input_pseudo_beta": input_feats["pseudo_beta"],
+                "ligand_target_feat": ligand_feats["ligand_target_feat"],
+                "ligand_bonds_feat": ligand_feats["ligand_bonds_feat"]
+            }
 
         feats["batch_idx"] = torch.tensor(
-            [idx for _ in range(feats["aatype"].shape[-1])],
-            # [idx for _ in range(feats["input"]["aatype"].shape[-1])],
+            [idx for _ in range(feats["aatype"].shape[-1] + feats["ligand_target_feat"].shape[-1])],
             dtype=torch.int64,
-            # device=feats["input"]["aatype"].device)
             device=feats["aatype"].device)
 
         return feats

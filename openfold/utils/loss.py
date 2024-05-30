@@ -516,7 +516,8 @@ def lddt_loss(
     eps: float = 1e-10,
     **kwargs,
 ) -> torch.Tensor:
-    n = all_atom_mask.shape[-2]
+    # remove ligand
+    logits = logits[:, :all_atom_mask.shape[1], :]
 
     ca_pos = residue_constants.atom_order["CA"]
     all_atom_pred_pos = all_atom_pred_pos[..., ca_pos, :]
@@ -562,6 +563,7 @@ def distogram_loss(
     logits,
     pseudo_beta,
     pseudo_beta_mask,
+    gt_ligand_positions,
     min_bin=2.3125,
     max_bin=21.6875,
     no_bins=64,
@@ -576,8 +578,11 @@ def distogram_loss(
     )
     boundaries = boundaries ** 2
 
+    all_atoms = torch.cat([pseudo_beta, gt_ligand_positions], dim=-2)
+    all_atom_mask = torch.cat([pseudo_beta_mask, torch.ones(gt_ligand_positions.shape[:-1])], dim=-1)
+
     dists = torch.sum(
-        (pseudo_beta[..., None, :] - pseudo_beta[..., None, :, :]) ** 2,
+        (all_atoms[..., None, :] - all_atoms[..., None, :, :]) ** 2,
         dim=-1,
         keepdims=True,
     )
@@ -589,7 +594,7 @@ def distogram_loss(
         torch.nn.functional.one_hot(true_bins, no_bins),
     )
 
-    square_mask = pseudo_beta_mask[..., None] * pseudo_beta_mask[..., None, :]
+    square_mask = all_atom_mask[..., None] * all_atom_mask[..., None, :]
 
     # FP16-friendly sum. Equivalent to:
     # mean = (torch.sum(errors * square_mask, dim=(-1, -2)) /
@@ -604,6 +609,54 @@ def distogram_loss(
     mean = torch.mean(mean)
 
     return mean
+
+
+def positions_distogram_loss(
+    out,
+    pseudo_beta,
+    gt_ligand_positions,
+    max_dist=20.,
+    **kwargs,
+):
+    cb_pos = residue_constants.atom_order["CB"]
+    predicted_protein_positions = out["sm"]["positions"][-1]
+    predicted_protein_positions = predicted_protein_positions[..., cb_pos, :]
+    predicted_ligand_positions = out["sm"]["ligand_atom_positions"][-1]
+
+    predicted_atoms = torch.cat([predicted_protein_positions, predicted_ligand_positions], dim=-2)
+
+    gt_atoms = torch.cat([pseudo_beta, gt_ligand_positions], dim=-2)
+
+    pred_dists = torch.sum(
+        (predicted_atoms[..., None, :] - predicted_atoms[..., None, :, :]) ** 2,
+        dim=-1,
+        keepdims=True,
+    )
+
+    gt_dists = torch.sum(
+        (gt_atoms[..., None, :] - gt_atoms[..., None, :, :]) ** 2,
+        dim=-1,
+        keepdims=True,
+    )
+
+    pred_dists = pred_dists.clamp(max=max_dist ** 2)
+    gt_dists = gt_dists.clamp(max=max_dist ** 2)
+
+    dists_diff = torch.abs(pred_dists - gt_dists)
+
+    full_loss = torch.mean(dists_diff)
+
+    ligand_start_ind = pseudo_beta.shape[-2]
+    intra_ligand_loss = torch.mean(dists_diff[..., ligand_start_ind:, ligand_start_ind:, :])
+    interface_loss = torch.mean(dists_diff[..., ligand_start_ind:, :ligand_start_ind, :])
+
+    print("distogram loss, full:", full_loss, "intra_ligand:", intra_ligand_loss, "interface:", interface_loss)
+
+    # TODO bshor: separate to multiple losses so we can have good logs
+    loss = 0.2 * full_loss + 0.4 * intra_ligand_loss + 0.4 * interface_loss
+
+    return loss
+
 
 
 def _calculate_bin_centers(boundaries: torch.Tensor):
@@ -715,67 +768,6 @@ def compute_tm(
 
     argmax = (weighted == torch.max(weighted)).nonzero()[0]
     return per_alignment[tuple(argmax)]
-
-
-def tm_loss(
-    logits,
-    final_affine_tensor,
-    backbone_rigid_tensor,
-    backbone_rigid_mask,
-    resolution,
-    max_bin=31,
-    no_bins=64,
-    min_resolution: float = 0.1,
-    max_resolution: float = 3.0,
-    eps=1e-8,
-    **kwargs,
-):
-    # first check whether this is a tensor_7 or tensor_4*4
-    if final_affine_tensor.shape[-1] == 7:
-        pred_affine = Rigid.from_tensor_7(final_affine_tensor)
-    elif final_affine_tensor.shape[-1] == 4:
-        pred_affine = Rigid.from_tensor_4x4(final_affine_tensor)
-    backbone_rigid = Rigid.from_tensor_4x4(backbone_rigid_tensor)
-
-    def _points(affine):
-        pts = affine.get_trans()[..., None, :, :]
-        return affine.invert()[..., None].apply(pts)
-
-    sq_diff = torch.sum(
-        (_points(pred_affine) - _points(backbone_rigid)) ** 2, dim=-1
-    )
-
-    sq_diff = sq_diff.detach()
-
-    boundaries = torch.linspace(
-        0, max_bin, steps=(no_bins - 1), device=logits.device
-    )
-    boundaries = boundaries ** 2
-    true_bins = torch.sum(sq_diff[..., None] > boundaries, dim=-1)
-
-    errors = softmax_cross_entropy(
-        logits, torch.nn.functional.one_hot(true_bins, no_bins)
-    )
-
-    square_mask = (
-        backbone_rigid_mask[..., None] * backbone_rigid_mask[..., None, :]
-    )
-
-    loss = torch.sum(errors * square_mask, dim=-1)
-    scale = 0.5  # hack to help FP16 training along
-    denom = eps + torch.sum(scale * square_mask, dim=(-1, -2))
-    loss = loss / denom[..., None]
-    loss = torch.sum(loss, dim=-1)
-    loss = loss * scale
-
-    loss = loss * (
-        (resolution >= min_resolution) & (resolution <= max_resolution)
-    )
-
-    # Average over the batch dimension
-    loss = torch.mean(loss)
-
-    return loss
 
 
 def between_residue_bond_loss(
@@ -1568,6 +1560,9 @@ def experimentally_resolved_loss(
     eps: float = 1e-8,
     **kwargs,
 ) -> torch.Tensor:
+    # remove ligand predictions
+    logits = logits[:, :all_atom_mask.shape[1], :]
+
     errors = sigmoid_cross_entropy(logits, all_atom_mask)
     loss = torch.sum(errors * atom37_atom_exists, dim=-1)
     loss = loss / (eps + torch.sum(atom37_atom_exists, dim=(-1, -2)).unsqueeze(-1))
@@ -1671,6 +1666,10 @@ class AlphaFoldLoss(nn.Module):
                 logits=out["distogram_logits"],
                 **{**batch, **self.config.distogram},
             ),
+            "positions_distogram": lambda: positions_distogram_loss(
+                out,
+                **{**batch, **self.config.positions_distogram},
+            ),
             "experimentally_resolved": lambda: experimentally_resolved_loss(
                 logits=out["experimentally_resolved_logits"],
                 **{**batch, **self.config.experimentally_resolved},
@@ -1695,12 +1694,6 @@ class AlphaFoldLoss(nn.Module):
                 **{**batch, **self.config.violation},
             ),
         }
-
-        if self.config.tm.enabled:
-            loss_fns["tm"] = lambda: tm_loss(
-                logits=out["tm_logits"],
-                **{**batch, **out, **self.config.tm},
-            )
 
         if self.config.chain_center_of_mass.enabled:
             loss_fns["chain_center_of_mass"] = lambda: chain_center_of_mass_loss(

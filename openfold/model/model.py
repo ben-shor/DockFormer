@@ -114,13 +114,15 @@ class AlphaFold(nn.Module):
                 feats[k] = feats[k].to(dtype=dtype)
 
         # Grab some data about the input
-        batch_dims = feats["target_feat"].shape[:-2]
+        batch_dims = feats["protein_target_feat"].shape[:-2]
         no_batch_dims = len(batch_dims)
-        n = feats["target_feat"].shape[-2]
-        # n_seq = feats["msa_feat"].shape[-3]
-        n_seq = 1
-        device = feats["target_feat"].device
-        print("doing sample of size", feats["target_feat"].shape)
+
+        n_res = feats["protein_target_feat"].shape[-2]
+        n_lig = feats["ligand_target_feat"].shape[-2]
+        n_total = n_res + n_lig
+
+        device = feats["protein_target_feat"].device
+        print("doing sample of size", feats["protein_target_feat"].shape, feats["ligand_target_feat"].shape)
 
         # Controls whether the model uses in-place operations throughout
         # The dual condition accounts for activation checkpoints
@@ -128,17 +130,19 @@ class AlphaFold(nn.Module):
         inplace_safe = False # so we don't need attn_core_inplace_cuda
 
         # Prep some features
-        seq_mask = feats["seq_mask"]
-        pair_mask = seq_mask[..., None] * seq_mask[..., None, :]
-        msa_mask = feats["msa_mask"]
+        protein_lig_seq_mask = feats["protein_lig_seq_mask"]
+        protein_lig_msa_mask = feats["protein_lig_msa_mask"]
+        pair_mask = protein_lig_seq_mask[..., None] * protein_lig_seq_mask[..., None, :]
 
         # Initialize the MSA and pair representations
-        # m: [*, S_c, N, C_m]
-        # z: [*, N, N, C_z]
+        # m: [*, 1, n_total, C_m]
+        # z: [*, n_total, n_total, C_z]
         m, z = self.input_embedder(
-            feats["target_feat"],
+            feats["protein_target_feat"],
             feats["residue_index"],
             feats["input_pseudo_beta"],
+            feats["ligand_target_feat"],
+            feats["ligand_bonds_feat"],
             inplace_safe=inplace_safe,
         )
 
@@ -150,25 +154,31 @@ class AlphaFold(nn.Module):
         if None in [m_1_prev, z_prev, x_prev]:
             # [*, N, C_m]
             m_1_prev = m.new_zeros(
-                (*batch_dims, n, self.config.structure_input_embedder.c_m),
+                (*batch_dims, n_total, self.config.structure_input_embedder.c_m),
                 requires_grad=False,
             )
 
             # [*, N, N, C_z]
             z_prev = z.new_zeros(
-                (*batch_dims, n, n, self.config.structure_input_embedder.c_z),
+                (*batch_dims, n_total, n_total, self.config.structure_input_embedder.c_z),
                 requires_grad=False,
             )
 
             # [*, N, 3]
             x_prev = z.new_zeros(
-                (*batch_dims, n, residue_constants.atom_type_num, 3),
+                (*batch_dims, n_total, residue_constants.atom_type_num, 3),
                 requires_grad=False,
             )
 
-        pseudo_beta_x_prev = pseudo_beta_fn(
-            feats["aatype"], x_prev, None
-        ).to(dtype=z.dtype)
+        # x_prev.shape == [1, n_total, 37, 3]
+        x_prev_protein = x_prev[:, :n_res, :, :]
+        pseudo_beta_x_prev = pseudo_beta_fn(feats["aatype"], x_prev_protein, None).to(dtype=z.dtype)
+
+        lig_atoms_pos = x_prev[:, n_res:, 0, :]
+        beta_ligand_x_prev = torch.cat([pseudo_beta_x_prev, lig_atoms_pos], dim=1)
+
+        del x_prev_protein
+        del lig_atoms_pos
 
         # The recycling embedder is memory-intensive, so we offload first
         if self.globals.offload_inference and inplace_safe:
@@ -180,11 +190,12 @@ class AlphaFold(nn.Module):
         m_1_prev_emb, z_prev_emb = self.recycling_embedder(
             m_1_prev,
             z_prev,
-            pseudo_beta_x_prev,
+            beta_ligand_x_prev,
             inplace_safe=inplace_safe,
         )
 
         del pseudo_beta_x_prev
+        del beta_ligand_x_prev
 
         if self.globals.offload_inference and inplace_safe:
             m = m.to(m_1_prev_emb.device)
@@ -210,7 +221,7 @@ class AlphaFold(nn.Module):
             del m, z
             m, z, s = self.evoformer._forward_offload(
                 input_tensors,
-                msa_mask=msa_mask.to(dtype=input_tensors[0].dtype),
+                msa_mask=protein_lig_msa_mask.to(dtype=input_tensors[0].dtype),
                 pair_mask=pair_mask.to(dtype=input_tensors[1].dtype),
                 chunk_size=self.globals.chunk_size,
                 use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention,
@@ -223,7 +234,7 @@ class AlphaFold(nn.Module):
             m, z, s = self.evoformer(
                 m,
                 z,
-                msa_mask=msa_mask.to(dtype=m.dtype),
+                msa_mask=protein_lig_msa_mask.to(dtype=m.dtype),
                 pair_mask=pair_mask.to(dtype=z.dtype),
                 chunk_size=self.globals.chunk_size,
                 use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention,
@@ -233,7 +244,7 @@ class AlphaFold(nn.Module):
                 _mask_trans=self.config._mask_trans,
             )
 
-        outputs["msa"] = m[..., :n_seq, :, :]
+        outputs["msa"] = m[..., :1, :, :]
         outputs["pair"] = z
         outputs["single"] = s
 
@@ -243,7 +254,8 @@ class AlphaFold(nn.Module):
         outputs["sm"] = self.structure_module(
             outputs,
             feats["aatype"],
-            mask=feats["seq_mask"].to(dtype=s.dtype),
+            ligand_start_ind=n_res,
+            mask=protein_lig_seq_mask.to(dtype=s.dtype),
             inplace_safe=inplace_safe,
             _offload_inference=self.globals.offload_inference,
         )
@@ -251,7 +263,6 @@ class AlphaFold(nn.Module):
             outputs["sm"]["positions"][-1], feats
         )
         outputs["final_atom_mask"] = feats["atom37_atom_exists"]
-        outputs["final_affine_tensor"] = outputs["sm"]["frames"][-1]
 
         # Save embeddings for use during the next recycling iteration
 
@@ -269,7 +280,11 @@ class AlphaFold(nn.Module):
         del x_prev
 
         # [*, N, 3]
-        x_prev = outputs["final_atom_positions"]
+        protein_pos = outputs["final_atom_positions"]
+        ligand_pos = torch.zeros((protein_pos.shape[0], n_lig, protein_pos.shape[2], 3))
+        ligand_pos[:, :, 0, :] = outputs["sm"]["ligand_atom_positions"][-1]
+
+        x_prev = torch.cat([protein_pos, ligand_pos], dim=1)
 
         return outputs, m_1_prev, z_prev, x_prev, early_stop
 
@@ -289,7 +304,7 @@ class AlphaFold(nn.Module):
                     "aatype" ([*, N_res]):
                         Contrary to the supplement, this tensor of residue
                         indices is not one-hot.
-                    "target_feat" ([*, N_res, C_tf])
+                    "protein_target_feat" ([*, N_res, C_tf])
                         One-hot encoding of the target sequence. C_tf is
                         config.model.input_embedder.tf_dim.
                     "residue_index" ([*, N_res])

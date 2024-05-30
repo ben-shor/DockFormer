@@ -277,12 +277,12 @@ def manual_main():
         callbacks.append(lr_monitor)
 
     loggers = []
-    csv_logger = CSVLogger("logs", name="evodocker_try1", flush_logs_every_n_steps=1)
+    csv_logger = CSVLogger("logs", name="evodocker_try2", flush_logs_every_n_steps=1)
     loggers.append(csv_logger)
 
     if True:
         wdb_logger = WandbLogger(
-            project="EvoDocker1",
+            project="EvoDocker2_with_ligand",
             save_dir=TRAIN_OUTPUT_DIR,
         )
         loggers.append(wdb_logger)
