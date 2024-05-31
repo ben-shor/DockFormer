@@ -579,7 +579,8 @@ def distogram_loss(
     boundaries = boundaries ** 2
 
     all_atoms = torch.cat([pseudo_beta, gt_ligand_positions], dim=-2)
-    all_atom_mask = torch.cat([pseudo_beta_mask, torch.ones(gt_ligand_positions.shape[:-1])], dim=-1)
+    all_atom_mask = torch.cat([pseudo_beta_mask, torch.ones(gt_ligand_positions.shape[:-1], device=all_atoms.device)],
+                              dim=-1)
 
     dists = torch.sum(
         (all_atoms[..., None, :] - all_atoms[..., None, :, :]) ** 2,
