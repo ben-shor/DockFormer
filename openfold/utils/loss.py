@@ -589,7 +589,6 @@ def distogram_loss(
     )
 
     true_bins = torch.sum(dists > boundaries, dim=-1)
-
     errors = softmax_cross_entropy(
         logits,
         torch.nn.functional.one_hot(true_bins, no_bins),

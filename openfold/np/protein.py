@@ -33,7 +33,6 @@ import modelcif.qa_metric
 
 
 FeatureDict = Mapping[str, np.ndarray]
-ModelOutput = Mapping[str, Any]  # Is a nested dict.
 PICO_TO_ANGSTROM = 0.01
 
 PDB_CHAIN_IDS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
@@ -170,7 +169,7 @@ def from_pdb_string(pdb_str: str, chain_id: Optional[str] = None) -> Protein:
                 chain_id += 1
 
     unique_chain_ids = np.unique(chain_ids)
-    chain_id_mapping = {cid: n for n, cid in enumerate(string.ascii_uppercase)}
+    chain_id_mapping = {cid: n for n, cid in enumerate(string.ascii_uppercase + string.digits + string.ascii_lowercase)}
     chain_index = np.array([chain_id_mapping[cid] for cid in chain_ids])
 
     return Protein(
@@ -588,8 +587,10 @@ def ideal_atom_mask(prot: Protein) -> np.ndarray:
 
 
 def from_prediction(
-    features: FeatureDict,
-    result: ModelOutput,
+    aatype: np.ndarray,
+    residue_index: np.ndarray,
+    atom_positions: np.ndarray,
+    atom_mask: np.ndarray,
     b_factors: Optional[np.ndarray] = None,
     remove_leading_feature_dimension: bool = True,
     remark: Optional[str] = None,
@@ -613,18 +614,16 @@ def from_prediction(
     def _maybe_remove_leading_dim(arr: np.ndarray) -> np.ndarray:
         return arr[0] if remove_leading_feature_dimension else arr
 
-    chain_index = np.zeros_like(
-        _maybe_remove_leading_dim(features["aatype"])
-    )
+    chain_index = np.zeros_like(_maybe_remove_leading_dim(aatype))
 
     if b_factors is None:
-        b_factors = np.zeros_like(result["final_atom_mask"])
+        b_factors = np.zeros_like(atom_mask)
 
     return Protein(
-        aatype=_maybe_remove_leading_dim(features["aatype"]),
-        atom_positions=result["final_atom_positions"],
-        atom_mask=result["final_atom_mask"],
-        residue_index=_maybe_remove_leading_dim(features["residue_index"]) + 1,
+        aatype=_maybe_remove_leading_dim(aatype),
+        atom_positions=atom_positions,
+        atom_mask=atom_mask,
+        residue_index=_maybe_remove_leading_dim(residue_index) + 1,
         b_factors=b_factors,
         chain_index=chain_index,
         remark=remark,

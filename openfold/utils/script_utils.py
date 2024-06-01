@@ -3,13 +3,16 @@ import logging
 import os
 import re
 import time
+from typing import List, Tuple
 
 import numpy
 import torch
 from lightning.pytorch.utilities.deepspeed import convert_zero_checkpoint_to_fp32_state_dict
+from rdkit import Chem
 
 from openfold.model.model import AlphaFold
 from openfold.np import residue_constants, protein
+from openfold.utils.consts import POSSIBLE_ATOM_TYPES, POSSIBLE_BOND_TYPES
 from openfold.utils.import_weights import (
     import_openfold_weights_
 )
@@ -133,21 +136,62 @@ def run_model(model, batch, tag, output_dir):
     return out
 
 
-def prep_output(out, batch):
-    plddt = out["plddt"]
+def get_molecule_from_output(atoms_atype: List[int], bonds: List[Tuple[int, int, int]],
+                             atom_positions: List[Tuple[float, float, float]]):
+    mol = Chem.RWMol()
 
+    # Add atoms
+    for atype_idx in atoms_atype:
+        symbol = POSSIBLE_ATOM_TYPES[atype_idx]
+        if symbol == "other":
+            symbol = "C"  # TODO bshor: add a default atom type
+        mol.AddAtom(Chem.Atom(symbol))
+
+    # Add bonds
+    for bond in bonds:
+        atom1, atom2, bond_type_idx = bond
+        bond_type = POSSIBLE_BOND_TYPES[bond_type_idx]
+        if bond_type == "other":
+            bond_type = Chem.rdchem.BondType.SINGLE  # TODO bshor: add a default bond type
+        if bond_type == Chem.rdchem.BondType.AROMATIC:
+            # TODO bshor: we should handle aromatic, but this causes "Can't kekulize mol" issues
+            bond_type = Chem.rdchem.BondType.SINGLE
+        mol.AddBond(int(atom1), int(atom2), bond_type)
+
+    # Set atom positions
+    conf = Chem.Conformer(len(atoms_atype))
+    for i, pos in enumerate(atom_positions.astype(float)):
+        conf.SetAtomPosition(i, pos)
+    mol.AddConformer(conf)
+    return mol
+
+
+def save_output_structure(aatype, residue_index, plddt, final_atom_protein_positions, final_atom_mask, ligand_atype,
+                          ligand_bonds, final_ligand_atom_positions, protein_output_path, ligand_output_path):
     plddt_b_factors = numpy.repeat(
         plddt[..., None], residue_constants.atom_type_num, axis=-1
     )
 
     unrelaxed_protein = protein.from_prediction(
-        features=batch,
-        result=out,
+        aatype=aatype,
+        residue_index=residue_index,
+        atom_mask=final_atom_mask,
+        atom_positions=final_atom_protein_positions,
         b_factors=plddt_b_factors,
         remove_leading_feature_dimension=False,
     )
 
-    return unrelaxed_protein
+    with open(protein_output_path, 'w') as fp:
+        fp.write(protein.to_pdb(unrelaxed_protein))
+
+    ligand = get_molecule_from_output(ligand_atype, ligand_bonds, final_ligand_atom_positions)
+    # protein_obj = Chem.MolFromPDBFile(output_path, sanitize=False)
+    # assert protein_obj is not None, "Failed to unrelaxed read protein from PDB file"
+    # combined = Chem.CombineMols(protein_obj, ligand)
+
+    with open(ligand_output_path, 'w') as f:
+        f.write(Chem.MolToPDBBlock(ligand))
+    print("Output written to", protein_output_path, ligand_output_path)
 
 
 def relax_protein(config, model_device, unrelaxed_protein, output_directory, output_name, cif_output=False):

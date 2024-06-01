@@ -22,6 +22,8 @@ from torch import nn
 from openfold.np import residue_constants, protein
 from rdkit import Chem
 
+from openfold.utils.consts import POSSIBLE_BOND_TYPES, POSSIBLE_ATOM_TYPES
+
 FeatureDict = MutableMapping[str, np.ndarray]
 
 
@@ -91,7 +93,6 @@ def make_pdb_features(
     return pdb_feats
 
 
-POSSIBLE_ATOM_TYPES = ["C", "N", "O", "S", "F", "P", "Cl", "Br", "I", "other"]
 def get_atom_features(atom: Chem.Atom):
     if atom.GetSymbol() in POSSIBLE_ATOM_TYPES:
         atom_type = POSSIBLE_ATOM_TYPES.index(atom.GetSymbol())
@@ -101,8 +102,6 @@ def get_atom_features(atom: Chem.Atom):
     return {"atom_type": atom_type}
 
 
-POSSIBLE_BOND_TYPES = [Chem.rdchem.BondType.SINGLE, Chem.rdchem.BondType.DOUBLE, Chem.rdchem.BondType.TRIPLE,
-                       Chem.rdchem.BondType.AROMATIC, "other"]
 def get_bond_features(bond: Chem.Bond):
     chem_bond_type = bond.GetBondType()
     if chem_bond_type in POSSIBLE_BOND_TYPES:
@@ -152,9 +151,7 @@ class DataPipeline:
 
         return {**pdb_feats}
 
-    def process_smiles(self, smiles: str) -> FeatureDict:
-        ligand = Chem.MolFromSmiles(smiles)
-
+    def _process_rdkit_ligand(self, ligand: Chem.Mol) -> FeatureDict:
         # Add ligand atoms
         atoms_features = []
         atom_idx_to_atom_pos_idx = {}
@@ -166,16 +163,27 @@ class DataPipeline:
         atom_types_one_hot = nn.functional.one_hot(atom_types, num_classes=len(POSSIBLE_ATOM_TYPES), )
 
         ligand_bonds_feat = torch.zeros((len(atoms_features), len(atoms_features), len(POSSIBLE_BOND_TYPES)))
+        ligand_bonds = []
         for bond in ligand.GetBonds():
             atom1_idx = atom_idx_to_atom_pos_idx[bond.GetBeginAtomIdx()]
             atom2_idx = atom_idx_to_atom_pos_idx[bond.GetEndAtomIdx()]
             bond_features = get_bond_features(bond)
+            ligand_bonds.append((atom1_idx, atom2_idx, bond_features["bond_type"]))
             ligand_bonds_feat[atom1_idx, atom2_idx, bond_features["bond_type"]] = 1
 
+        atom_types = torch.tensor(np.array([[atom["atom_type"] for atom in atoms_features]], dtype=np.int64))
+        ligand_bonds = torch.tensor(np.array([ligand_bonds]))
+
         return {
+            "ligand_atype": atom_types,
+            "ligand_bonds": ligand_bonds,
             "ligand_target_feat": atom_types_one_hot.float(),
             "ligand_bonds_feat": ligand_bonds_feat.float(),
         }
+
+    def process_smiles(self, smiles: str) -> FeatureDict:
+        ligand = Chem.MolFromSmiles(smiles)
+        return self._process_rdkit_ligand(ligand)
 
     def process_mol2(self, mol2_path: str) -> FeatureDict:
         """
@@ -188,7 +196,7 @@ class DataPipeline:
         positions = torch.tensor(conf.GetPositions())
 
         return {
-            **self.process_smiles(Chem.MolToSmiles(ligand)),
+            **self._process_rdkit_ligand(ligand),
             "gt_ligand_positions": positions.float()
         }
 

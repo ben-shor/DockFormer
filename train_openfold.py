@@ -291,6 +291,7 @@ def manual_main():
         accelerator=device_name,
         default_root_dir=output_dir,
         strategy="auto",
+        # strategy="ddp", devices=1, num_nodes=2,  # For multi-node training
         reload_dataloaders_every_n_epochs=1,
         check_val_every_n_epoch=1,
         callbacks=callbacks,

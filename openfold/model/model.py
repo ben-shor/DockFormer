@@ -284,8 +284,6 @@ class AlphaFold(nn.Module):
         ligand_pos = torch.zeros((protein_pos.shape[0], n_lig, protein_pos.shape[2], 3), device=device)
         ligand_pos[:, :, 0, :] = outputs["sm"]["ligand_atom_positions"][-1]
 
-        print(protein_pos.device, ligand_pos.device)
-
         x_prev = torch.cat([protein_pos, ligand_pos], dim=1)
 
         return outputs, m_1_prev, z_prev, x_prev, early_stop

@@ -183,7 +183,7 @@ config = mlc.ConfigDict(
             "_mask_trans": False,
             "structure_input_embedder": {
                 "protein_tf_dim": 22,
-                "ligand_tf_dim": 10,
+                "ligand_tf_dim": 16,
                 "ligand_bond_dim": 5,
                 "c_z": c_z,
                 "c_m": c_m,
@@ -211,7 +211,8 @@ config = mlc.ConfigDict(
                 "c_s": c_s,
                 "no_heads_msa": 8,
                 "no_heads_pair": 4,
-                "no_blocks": 48,
+                # "no_blocks": 48,
+                "no_blocks": 16,
                 "transition_n": 4,
                 "msa_dropout": 0.15,
                 "pair_dropout": 0.25,
