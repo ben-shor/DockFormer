@@ -41,6 +41,18 @@ class AuxiliaryHeads(nn.Module):
             **config["experimentally_resolved"],
         )
 
+        self.affinity_2d = Affinity2DPredictor(
+            **config["affinity_2d"],
+        )
+
+        self.affinity_1d = Affinity1DPredictor(
+            **config["affinity_1d"],
+        )
+
+        self.binding_site = BindingSitePredictor(
+            **config["binding_site"],
+        )
+
         self.config = config
 
     def forward(self, outputs):
@@ -59,7 +71,75 @@ class AuxiliaryHeads(nn.Module):
         )
         aux_out["experimentally_resolved_logits"] = experimentally_resolved_logits
 
+        aux_out["affinity_2d_logits"] = self.affinity_2d(outputs["pair"], outputs["start_ligand_ind"])
+
+        aux_out["affinity_1d_logits"] =  self.affinity_1d(outputs["single"])
+
+        aux_out["binding_site_logits"] = self.binding_site(outputs["single"])
+
         return aux_out
+
+
+class Affinity2DPredictor(nn.Module):
+    def __init__(self, c_z, num_bins):
+        super(Affinity2DPredictor, self).__init__()
+
+        self.c_z = c_z
+
+        self.fc1 = Linear(self.c_z, self.c_z)
+        self.attention = Linear(self.c_z, 1)
+        self.fc2 = Linear(self.c_z, num_bins)
+
+    def forward(self, z, start_ligand_ind):
+        # Extract interface part of Z
+        x = z[:, start_ligand_ind:, :start_ligand_ind, :]
+
+        x = self.fc1(x)
+
+        batch_size, N, M, _ = x.shape
+        x_flat = x.view(batch_size, N * M, -1)
+        attention_weights = torch.softmax(self.attention(x_flat), dim=1)
+        weighted_sum = torch.sum(attention_weights * x_flat, dim=1)
+
+        affinity_logits = self.fc2(weighted_sum)
+
+        return affinity_logits
+
+
+class Affinity1DPredictor(nn.Module):
+    def __init__(self, c_s, num_bins, **kwargs):
+        super(Affinity1DPredictor, self).__init__()
+
+        self.c_s = c_s
+
+        self.linear1 = Linear(self.c_s, self.c_s, init="final")
+
+        self.linear2 = Linear(self.c_s, num_bins, init="final")
+
+    def forward(self, s):
+        # [*, N, C_out]
+        s = self.linear1(s)
+
+        # get an average over the sequence
+        s = torch.mean(s, dim=1)
+
+        logits = self.linear2(s)
+        return logits
+
+
+class BindingSitePredictor(nn.Module):
+    def __init__(self, c_s, c_out, **kwargs):
+        super(BindingSitePredictor, self).__init__()
+
+        self.c_s = c_s
+        self.c_out = c_out
+
+        self.linear = Linear(self.c_s, self.c_out, init="final")
+
+    def forward(self, s):
+        # [*, N, C_out]
+        logits = self.linear(s)
+        return logits
 
 
 class PerResidueLDDTCaPredictor(nn.Module):

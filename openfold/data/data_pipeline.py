@@ -25,6 +25,7 @@ from rdkit import Chem
 from openfold.utils.consts import POSSIBLE_BOND_TYPES, POSSIBLE_ATOM_TYPES
 
 FeatureDict = MutableMapping[str, np.ndarray]
+FeatureTensorDict = MutableMapping[str, torch.Tensor]
 
 
 def make_sequence_features(
@@ -41,7 +42,7 @@ def make_sequence_features(
     features["domain_name"] = np.array(
         [description.encode("utf-8")], dtype=object
     )
-    features["residue_index"] = np.array(range(num_res), dtype=np.int32)
+    # features["residue_index"] = np.array(range(num_res), dtype=np.int32)
     features["seq_length"] = np.array([num_res] * num_res, dtype=np.int32)
     features["sequence"] = np.array(
         [sequence.encode("utf-8")], dtype=object
@@ -76,6 +77,7 @@ def make_protein_features(
 
     pdb_feats["all_atom_positions"] = all_atom_positions.astype(np.float32)
     pdb_feats["all_atom_mask"] = all_atom_mask.astype(np.float32)
+    pdb_feats["residue_index"] = protein_object.residue_index.astype(np.int32)
 
     pdb_feats["resolution"] = np.array([0.]).astype(np.float32)
 
@@ -151,7 +153,7 @@ class DataPipeline:
 
         return {**pdb_feats}
 
-    def _process_rdkit_ligand(self, ligand: Chem.Mol) -> FeatureDict:
+    def _process_rdkit_ligand(self, ligand: Chem.Mol) -> FeatureTensorDict:
         # Add ligand atoms
         atoms_features = []
         atom_idx_to_atom_pos_idx = {}
@@ -181,11 +183,11 @@ class DataPipeline:
             "ligand_bonds_feat": ligand_bonds_feat.float(),
         }
 
-    def process_smiles(self, smiles: str) -> FeatureDict:
+    def process_smiles(self, smiles: str) -> FeatureTensorDict:
         ligand = Chem.MolFromSmiles(smiles)
         return self._process_rdkit_ligand(ligand)
 
-    def process_mol2(self, mol2_path: str) -> FeatureDict:
+    def process_mol2(self, mol2_path: str) -> FeatureTensorDict:
         """
             Assembles features for a ligand in a mol2 file.
         """

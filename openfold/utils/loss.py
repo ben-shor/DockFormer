@@ -611,11 +611,36 @@ def distogram_loss(
     return mean
 
 
-def positions_distogram_loss(
+def affinity_loss(
+    logits,
+    affinity,
+    min_bin=0,
+    max_bin=15,
+    no_bins=32,
+    **kwargs,
+):
+    boundaries = torch.linspace(
+        min_bin,
+        max_bin,
+        no_bins - 1,
+        device=logits.device,
+    )
+
+    true_bins = torch.sum(affinity > boundaries, dim=-1)
+    errors = softmax_cross_entropy(
+        logits,
+        torch.nn.functional.one_hot(true_bins, no_bins),
+    )
+
+    return torch.sum(errors)
+
+
+def positions_inter_distogram_loss(
     out,
     pseudo_beta,
     gt_ligand_positions,
     max_dist=20.,
+    length_scale=10.,
     **kwargs,
 ):
     cb_pos = residue_constants.atom_order["CB"]
@@ -642,21 +667,44 @@ def positions_distogram_loss(
     pred_dists = pred_dists.clamp(max=max_dist ** 2)
     gt_dists = gt_dists.clamp(max=max_dist ** 2)
 
-    dists_diff = torch.abs(pred_dists - gt_dists)
+    dists_diff = torch.abs(pred_dists - gt_dists) / (length_scale ** 2)
 
-    full_loss = torch.mean(dists_diff)
-
+    # full_loss = torch.mean(dists_diff)
     ligand_start_ind = pseudo_beta.shape[-2]
-    intra_ligand_loss = torch.mean(dists_diff[..., ligand_start_ind:, ligand_start_ind:, :])
-    interface_loss = torch.mean(dists_diff[..., ligand_start_ind:, :ligand_start_ind, :])
+    inter_loss = torch.mean(dists_diff[..., ligand_start_ind:, :ligand_start_ind, :])
 
-    print("distogram loss, full:", full_loss, "intra_ligand:", intra_ligand_loss, "interface:", interface_loss)
+    return inter_loss
 
-    # TODO bshor: separate to multiple losses so we can have good logs
-    loss = 0.2 * full_loss + 0.4 * intra_ligand_loss + 0.4 * interface_loss
 
-    return loss
+def positions_intra_ligand_distogram_loss(
+    out,
+    gt_ligand_positions,
+    max_dist=20.,
+    length_scale=4.,  # similar to RosettaFoldAA
+    **kwargs,
+):
+    predicted_ligand_positions = out["sm"]["ligand_atom_positions"][-1]
 
+    pred_dists = torch.sum(
+        (predicted_ligand_positions[..., None, :] - predicted_ligand_positions[..., None, :, :]) ** 2,
+        dim=-1,
+        keepdims=True,
+    )
+
+    gt_dists = torch.sum(
+        (gt_ligand_positions[..., None, :] - gt_ligand_positions[..., None, :, :]) ** 2,
+        dim=-1,
+        keepdims=True,
+    )
+
+    pred_dists = pred_dists.clamp(max=max_dist ** 2)
+    gt_dists = gt_dists.clamp(max=max_dist ** 2)
+
+    dists_diff = torch.abs(pred_dists - gt_dists) / (length_scale ** 2)
+
+    intra_ligand_loss = torch.mean(dists_diff)
+
+    return intra_ligand_loss
 
 
 def _calculate_bin_centers(boundaries: torch.Tensor):
@@ -1577,6 +1625,16 @@ def experimentally_resolved_loss(
     return loss
 
 
+def binding_site_loss(
+    logits: torch.Tensor,
+    binding_site_mask: torch.Tensor,
+    **kwargs,
+) -> torch.Tensor:
+    # remove ligand predictions
+    errors = sigmoid_cross_entropy(logits, binding_site_mask)
+    return torch.mean(errors)
+
+
 def chain_center_of_mass_loss(
     all_atom_pred_pos: torch.Tensor,
     all_atom_positions: torch.Tensor,
@@ -1666,13 +1724,29 @@ class AlphaFoldLoss(nn.Module):
                 logits=out["distogram_logits"],
                 **{**batch, **self.config.distogram},
             ),
-            "positions_distogram": lambda: positions_distogram_loss(
+            "positions_inter_distogram": lambda: positions_inter_distogram_loss(
                 out,
-                **{**batch, **self.config.positions_distogram},
+                **{**batch, **self.config.positions_inter_distogram},
+            ),
+            "positions_intra_distogram": lambda: positions_intra_ligand_distogram_loss(
+                out,
+                **{**batch, **self.config.positions_intra_distogram},
             ),
             "experimentally_resolved": lambda: experimentally_resolved_loss(
                 logits=out["experimentally_resolved_logits"],
                 **{**batch, **self.config.experimentally_resolved},
+            ),
+            "affinity1d": lambda: affinity_loss(
+                logits=out["affinity_1d_logits"],
+                **{**batch, **self.config.affinity1d},
+            ),
+            "affinity2d": lambda: affinity_loss(
+                logits=out["affinity_2d_logits"],
+                **{**batch, **self.config.affinity2d},
+            ),
+            "binding_site": lambda: binding_site_loss(
+                logits=out["binding_site_logits"],
+                **{**batch, **self.config.binding_site},
             ),
             "fape": lambda: fape_loss(
                 out,

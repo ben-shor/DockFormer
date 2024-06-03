@@ -248,6 +248,9 @@ class AlphaFold(nn.Module):
         outputs["pair"] = z
         outputs["single"] = s
 
+        # TODO bshor: this is needed for aux heads, but shouldn't really be part of the output
+        outputs["start_ligand_ind"] = n_res
+
         del z
 
         # Predict 3D structure
@@ -363,5 +366,9 @@ class AlphaFold(nn.Module):
 
         # Run auxiliary heads
         outputs.update(self.aux_heads(outputs))
+
+        affinity_2d = torch.sum(torch.softmax(outputs["affinity_2d_logits"], -1) * torch.linspace(0, 15, 32), dim=-1)
+        affinity_1d = torch.sum(torch.softmax(outputs["affinity_1d_logits"], -1) * torch.linspace(0, 15, 32), dim=-1)
+        print("Affinity summary", batch["affinity"].flatten()[0], affinity_2d[0], affinity_1d[0])
 
         return outputs

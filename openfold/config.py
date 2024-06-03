@@ -64,6 +64,7 @@ c_s = mlc.FieldReference(384, field_type=int)
 blocks_per_ckpt = mlc.FieldReference(None, field_type=int)
 chunk_size = mlc.FieldReference(4, field_type=int)
 aux_distogram_bins = mlc.FieldReference(64, field_type=int)
+aux_affinity_bins = mlc.FieldReference(32, field_type=int)
 eps = mlc.FieldReference(1e-8, field_type=float)
 tune_chunk_size = mlc.FieldReference(True, field_type=bool)
 
@@ -256,6 +257,18 @@ config = mlc.ConfigDict(
                     "c_s": c_s,
                     "c_out": 37,
                 },
+                "affinity_2d": {
+                    "c_z": c_z,
+                    "num_bins": aux_affinity_bins,
+                },
+                "affinity_1d": {
+                    "c_s": c_s,
+                    "num_bins": aux_affinity_bins,
+                },
+                "binding_site": {
+                    "c_s": c_s,
+                    "c_out": 1,
+                },
             },
             # A negative value indicates that no early stopping will occur, i.e.
             # the model will always run `max_recycling_iters` number of recycling
@@ -279,15 +292,34 @@ config = mlc.ConfigDict(
                 "eps": eps,  # 1e-6,
                 "weight": 0.3,
             },
-            "positions_distogram": {
+            "positions_inter_distogram": {
                 "max_dist": 20.0,
-                "weight": 0.3,
+                "weight": 0.1,
+            },
+            "positions_intra_distogram": {
+                "max_dist": 10.0,
+                "weight": 0.01,
             },
             "experimentally_resolved": {
                 "eps": eps,  # 1e-8,
                 "min_resolution": 0.1,
                 "max_resolution": 3.0,
                 "weight": 0.0,
+            },
+            "binding_site": {
+                "weight": 0.01,
+            },
+            "affinity2d": {
+                "min_bin": 0,
+                "max_bin": 15,
+                "no_bins": aux_affinity_bins,
+                "weight": 0.05,
+            },
+            "affinity1d": {
+                "min_bin": 0,
+                "max_bin": 15,
+                "no_bins": aux_affinity_bins,
+                "weight": 0.05,
             },
             "fape": {
                 "backbone": {
@@ -323,7 +355,7 @@ config = mlc.ConfigDict(
                 "average_clashes": False,
                 "eps": eps,  # 1e-6,
                 # TODO bshor: this should only be enabled for fine-tuning?
-                "weight": 0.01,
+                "weight": 0.00,
             },
             "chain_center_of_mass": {
                 "clamp_distance": -4.0,

@@ -46,6 +46,17 @@ def make_output_directory(output_dir, model_name, multiple_model_mode):
     return prediction_dir
 
 
+# Function to get the latest checkpoint
+def get_latest_checkpoint(checkpoint_dir):
+    if not os.path.exists(checkpoint_dir):
+        return None
+    checkpoints = [f for f in os.listdir(checkpoint_dir) if f.endswith('.ckpt')]
+    if not checkpoints:
+        return None
+    latest_checkpoint = max(checkpoints, key=lambda x: os.path.getctime(os.path.join(checkpoint_dir, x)))
+    return os.path.join(checkpoint_dir, latest_checkpoint)
+
+
 def load_models_from_command_line(config, model_device, openfold_checkpoint_path, output_dir):
     # Create the output directory
 

@@ -86,6 +86,10 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         }
         return metadata
 
+    @staticmethod
+    def _prepare_recycles(feat: torch.Tensor, num_recycles: int) -> torch.Tensor:
+        return feat.unsqueeze(-1).repeat(*([1] * len(feat.shape)), num_recycles)
+
     def __getitem__(self, idx):
         input_path = os.path.join(self.data_dir, self._all_input_files[idx])
         input_data = json.load(open(input_path, "r"))
@@ -106,7 +110,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
 
         # apply recycling to ligand features
         for k, v in ligand_feats.items():
-            ligand_feats[k] = v.unsqueeze(-1).repeat(*([1] * len(v.shape)), num_recycles)
+            ligand_feats[k] = self._prepare_recycles(v, num_recycles)
 
         n_res = input_protein_feats["protein_target_feat"].shape[0]
         n_lig = ligand_feats["ligand_target_feat"].shape[0]
@@ -131,11 +135,21 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
             gt_protein_structure = self.data_pipeline.process_pdb(pdb_path=gt_pdb_path)
             gt_protein_feats = self.feature_pipeline.process_features(gt_protein_structure, self.mode)
 
+            affinity = self._prepare_recycles(torch.tensor([input_data["affinity"]], dtype=torch.float32), num_recycles)
+
+            flatten_residue_index = input_protein_feats["residue_index"][..., 0].flatten().tolist()
+            binding_site_mask = torch.zeros(n_res, dtype=torch.bool)
+            for i in input_data["pocket_res_ids"]:
+                binding_site_mask[flatten_residue_index.index(i)] = True
+            binding_site_mask = self._prepare_recycles(binding_site_mask, num_recycles)
+
             feats = {
                 **feats,
                 **gt_protein_feats,  # most of the properties are used for loss (only seq and input_psuedo_beta are not)
                 "input_pseudo_beta": input_protein_feats["pseudo_beta"],
                 "gt_ligand_positions": ligand_feats["gt_ligand_positions"],
+                "affinity": affinity,
+                "binding_site_mask": binding_site_mask,
             }
         else:
             pass
@@ -149,7 +163,6 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self._all_input_files)
-
 
 
 def resolution_filter(resolution: int, max_resolution: float) -> bool:

@@ -1,4 +1,4 @@
-from env_consts import TRAIN_DIR, VAL_DIR, TRAIN_OUTPUT_DIR, CKPT_PATH
+from env_consts import TRAIN_DIR, VAL_DIR, TRAIN_OUTPUT_DIR
 import os
 
 from lightning.pytorch import seed_everything
@@ -14,6 +14,7 @@ from openfold.np import residue_constants
 from openfold.utils.exponential_moving_average import ExponentialMovingAverage
 from openfold.utils.loss import AlphaFoldLoss, lddt_ca
 from openfold.utils.lr_schedulers import AlphaFoldLRScheduler
+from openfold.utils.script_utils import get_latest_checkpoint
 from openfold.utils.superimposition import superimpose
 from openfold.utils.tensor_utils import tensor_tree_map
 from openfold.utils.validation_metrics import (
@@ -244,11 +245,15 @@ def manual_main():
         batch_seed=seed,
         train_data_dir=TRAIN_DIR,
         val_data_dir=VAL_DIR,
-        train_epoch_len=1000,
+        train_epoch_len=100,
     )
 
-    if CKPT_PATH:
-        sd = torch.load(CKPT_PATH)
+    checkpoint_dir = os.path.join(output_dir, "checkpoint")
+    ckpt_path = get_latest_checkpoint(checkpoint_dir)
+
+    if ckpt_path:
+        print(f"Resuming from checkpoint: {ckpt_path}")
+        sd = torch.load(ckpt_path)
         last_global_step = int(sd['global_step'])
         model_module.resume_last_lr_step(last_global_step)
 
@@ -258,9 +263,11 @@ def manual_main():
     callbacks = []
 
     mc = ModelCheckpoint(
+        dirpath=checkpoint_dir,
         every_n_epochs=1,
         auto_insert_metric_name=False,
         save_top_k=1,
+        save_on_train_epoch_end=True,  # before validation
     )
     callbacks.append(mc)
 
@@ -280,12 +287,19 @@ def manual_main():
     csv_logger = CSVLogger("logs", name="evodocker_try2", flush_logs_every_n_steps=1)
     loggers.append(csv_logger)
 
-    if True:
-        wdb_logger = WandbLogger(
-            project="EvoDocker2_with_ligand",
-            save_dir=TRAIN_OUTPUT_DIR,
-        )
-        loggers.append(wdb_logger)
+    wandb_project_name = "EvoDocker2_with_ligand"
+    wandb_run_id_path = os.path.join(output_dir, "wandb_run_id.txt")
+
+    # Initialize WandbLogger and save run_id
+    if not os.path.exists(wandb_run_id_path):
+        wandb_logger = WandbLogger(project=wandb_project_name, save_dir=output_dir)
+        with open(wandb_run_id_path, 'w') as f:
+            f.write(wandb_logger.experiment.id)
+    else:
+        with open(wandb_run_id_path, 'r') as f:
+            run_id = f.read().strip()
+        wandb_logger = WandbLogger(project=wandb_project_name, save_dir=output_dir, resume='must', id=run_id)
+    loggers.append(wandb_logger)
 
     trainer = pl.Trainer(
         accelerator=device_name,
@@ -293,7 +307,8 @@ def manual_main():
         strategy="auto",
         # strategy="ddp", devices=1, num_nodes=2,  # For multi-node training
         reload_dataloaders_every_n_epochs=1,
-        check_val_every_n_epoch=1,
+        # accumulate_grad_batches=32, # can be used to simulate larger batch sizes
+        check_val_every_n_epoch=10,
         callbacks=callbacks,
         logger=loggers,
     )
@@ -301,7 +316,7 @@ def manual_main():
     trainer.fit(
         model_module,
         datamodule=data_module,
-        ckpt_path=CKPT_PATH,
+        ckpt_path=ckpt_path,
     )
 
     # torch.cuda.memory._dump_snapshot("my_train_snapshot.pickle")

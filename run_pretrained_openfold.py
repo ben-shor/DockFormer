@@ -70,7 +70,8 @@ def manual_main():
         output_name = f"{tag}_predicted"
 
         # turn into a batch of size 1
-        processed_feature_dict = {key: value.unsqueeze(0) for key, value in processed_feature_dict.items()}
+        processed_feature_dict = {key: value.unsqueeze(0).to(device_name)
+                                  for key, value in processed_feature_dict.items()}
 
         out = run_model(model, processed_feature_dict, tag, TEST_OUTPUT_DIR)
 
