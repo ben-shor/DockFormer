@@ -14,12 +14,14 @@ def model_config(
     # TRAINING PRESETS
     if name == "initial_training":
         # AF2 Suppl. Table 4, "initial training" setting
+
         pass
-    elif name == "finetuning":
-        # AF2 Suppl. Table 4, "finetuning" setting
-        c.data.train.crop_size = 384
+    elif name == "finetune_affinity":
         c.loss.violation.weight = 1.
-        c.loss.experimentally_resolved.weight = 0.01
+        c.loss.affinity2d.weight = 0.5
+        c.loss.affinity1d.weight = 0.5
+        c.loss.binding_site.weight = 0.5
+        c.loss.positions_inter_distogram.weight = 0.5  # this is not essential given fape
     else:
         raise ValueError("Invalid model name")
 
@@ -109,7 +111,7 @@ config = mlc.ConfigDict(
                     "protein_target_feat": [NUM_RES, None],
                     "use_clamped_fape": [],
                 },
-                "max_recycling_iters": 3,
+                "max_recycling_iters": 1,
                 "unsupervised_features": [
                     "aatype",
                     "residue_index",
@@ -213,7 +215,7 @@ config = mlc.ConfigDict(
                 "no_heads_msa": 8,
                 "no_heads_pair": 4,
                 # "no_blocks": 48,
-                "no_blocks": 16,
+                "no_blocks": 24,
                 "transition_n": 4,
                 "msa_dropout": 0.15,
                 "pair_dropout": 0.25,
@@ -294,11 +296,11 @@ config = mlc.ConfigDict(
             },
             "positions_inter_distogram": {
                 "max_dist": 20.0,
-                "weight": 0.1,
+                "weight": 0,
             },
             "positions_intra_distogram": {
                 "max_dist": 10.0,
-                "weight": 0.01,
+                "weight": 0.1,
             },
             "experimentally_resolved": {
                 "eps": eps,  # 1e-8,
@@ -307,19 +309,19 @@ config = mlc.ConfigDict(
                 "weight": 0.0,
             },
             "binding_site": {
-                "weight": 0.01,
+                "weight": 0,
             },
             "affinity2d": {
                 "min_bin": 0,
                 "max_bin": 15,
                 "no_bins": aux_affinity_bins,
-                "weight": 0.05,
+                "weight": 0.,
             },
             "affinity1d": {
                 "min_bin": 0,
                 "max_bin": 15,
                 "no_bins": aux_affinity_bins,
-                "weight": 0.05,
+                "weight": 0,
             },
             "fape": {
                 "backbone": {

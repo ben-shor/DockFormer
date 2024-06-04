@@ -40,7 +40,6 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
                     "train", "val", or "predict"
         """
         super(OpenFoldSingleDataset, self).__init__()
-        # TODO bshor: maybe need to bring back chain_data_cache_path if loading train data is very slow
         self.data_dir = data_dir
 
         self.config = config
@@ -115,8 +114,8 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         n_res = input_protein_feats["protein_target_feat"].shape[0]
         n_lig = ligand_feats["ligand_target_feat"].shape[0]
 
-        protein_lig_seq_mask = torch.cat([input_protein_feats["seq_mask"], torch.ones((n_lig, 4))], dim=0)
-        protein_lig_msa_mask = torch.cat([input_protein_feats["msa_mask"], torch.ones((n_lig, 4))], dim=0)
+        protein_lig_seq_mask = torch.cat([input_protein_feats["seq_mask"], torch.ones((n_lig, num_recycles))], dim=0)
+        protein_lig_msa_mask = torch.cat([input_protein_feats["msa_mask"], torch.ones((n_lig, num_recycles))], dim=0)
 
         feats = {
             **input_protein_feats,

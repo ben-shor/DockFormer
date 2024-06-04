@@ -234,12 +234,14 @@ def backbone_loss(
 def sidechain_loss(
     sidechain_frames: torch.Tensor,
     sidechain_atom_pos: torch.Tensor,
+    ligand_atom_pos: torch.Tensor,
     rigidgroups_gt_frames: torch.Tensor,
     rigidgroups_alt_gt_frames: torch.Tensor,
     rigidgroups_gt_exists: torch.Tensor,
     renamed_atom14_gt_positions: torch.Tensor,
     renamed_atom14_gt_exists: torch.Tensor,
     alt_naming_is_better: torch.Tensor,
+    gt_ligand_positions: torch.Tensor,
     clamp_distance: float = 10.0,
     length_scale: float = 10.0,
     eps: float = 1e-4,
@@ -252,7 +254,7 @@ def sidechain_loss(
                         ] * rigidgroups_alt_gt_frames
 
     # Steamroll the inputs
-    sidechain_frames = sidechain_frames[-1]
+    sidechain_frames = sidechain_frames[-1]  # get only the last layer of the strcuture module
     batch_dims = sidechain_frames.shape[:-4]
     sidechain_frames = sidechain_frames.view(*batch_dims, -1, 4, 4)
     sidechain_frames = Rigid.from_tensor_4x4(sidechain_frames)
@@ -266,12 +268,25 @@ def sidechain_loss(
     )
     renamed_atom14_gt_exists = renamed_atom14_gt_exists.view(*batch_dims, -1)
 
+    ligand_atom_pos = ligand_atom_pos[-1]
+    ligand_atom_pos = ligand_atom_pos.view(*batch_dims, -1, 3)
+
+    prot_lig_atom_pos = torch.cat([sidechain_atom_pos, ligand_atom_pos], dim=-2)
+
+    gt_ligand_positions = gt_ligand_positions.view(*batch_dims, -1, 3)
+    gt_prot_lig_atom_pos = torch.cat([renamed_atom14_gt_positions, gt_ligand_positions], dim=-2)
+
+    renamed_atom14_gt_exists = torch.cat([renamed_atom14_gt_exists,
+                                          torch.ones_like(gt_ligand_positions[..., 0],
+                                                          dtype=torch.float32,
+                                                          device=renamed_atom14_gt_exists.device)], dim=-1)
+
     fape = compute_fape(
         sidechain_frames,
         renamed_gt_frames,
         rigidgroups_gt_exists,
-        sidechain_atom_pos,
-        renamed_atom14_gt_positions,
+        prot_lig_atom_pos,
+        gt_prot_lig_atom_pos,
         renamed_atom14_gt_exists,
         pair_mask=None,
         l1_clamp_distance=clamp_distance,
@@ -313,6 +328,7 @@ def fape_loss(
     sc_loss = sidechain_loss(
         out["sm"]["sidechain_frames"],
         out["sm"]["positions"],
+        out["sm"]["ligand_atom_positions"],
         **{**batch, **config.sidechain},
     )
 
@@ -671,7 +687,7 @@ def positions_inter_distogram_loss(
 
     # full_loss = torch.mean(dists_diff)
     ligand_start_ind = pseudo_beta.shape[-2]
-    inter_loss = torch.mean(dists_diff[..., ligand_start_ind:, :ligand_start_ind, :])
+    inter_loss = torch.mean(torch.sqrt(dists_diff[..., ligand_start_ind:, :ligand_start_ind, :]))
 
     return inter_loss
 
@@ -701,6 +717,7 @@ def positions_intra_ligand_distogram_loss(
     gt_dists = gt_dists.clamp(max=max_dist ** 2)
 
     dists_diff = torch.abs(pred_dists - gt_dists) / (length_scale ** 2)
+    dists_diff = torch.sqrt(dists_diff)
 
     intra_ligand_loss = torch.mean(dists_diff)
 
