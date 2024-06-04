@@ -657,6 +657,7 @@ def positions_inter_distogram_loss(
     gt_ligand_positions,
     max_dist=20.,
     length_scale=10.,
+    eps: float = 1e-10,
     **kwargs,
 ):
     cb_pos = residue_constants.atom_order["CB"]
@@ -687,7 +688,7 @@ def positions_inter_distogram_loss(
 
     # full_loss = torch.mean(dists_diff)
     ligand_start_ind = pseudo_beta.shape[-2]
-    inter_loss = torch.mean(torch.sqrt(dists_diff[..., ligand_start_ind:, :ligand_start_ind, :]))
+    inter_loss = torch.mean(torch.sqrt(eps + dists_diff[..., ligand_start_ind:, :ligand_start_ind, :]))
 
     return inter_loss
 
@@ -697,6 +698,7 @@ def positions_intra_ligand_distogram_loss(
     gt_ligand_positions,
     max_dist=20.,
     length_scale=4.,  # similar to RosettaFoldAA
+    eps=1e-10,
     **kwargs,
 ):
     predicted_ligand_positions = out["sm"]["ligand_atom_positions"][-1]
@@ -713,11 +715,10 @@ def positions_intra_ligand_distogram_loss(
         keepdims=True,
     )
 
-    pred_dists = pred_dists.clamp(max=max_dist ** 2)
-    gt_dists = gt_dists.clamp(max=max_dist ** 2)
+    pred_dists = torch.sqrt(eps + pred_dists.clamp(max=max_dist ** 2))
+    gt_dists = torch.sqrt(eps + gt_dists.clamp(max=max_dist ** 2))
 
-    dists_diff = torch.abs(pred_dists - gt_dists) / (length_scale ** 2)
-    dists_diff = torch.sqrt(dists_diff)
+    dists_diff = torch.abs(pred_dists - gt_dists) / length_scale
 
     intra_ligand_loss = torch.mean(dists_diff)
 
