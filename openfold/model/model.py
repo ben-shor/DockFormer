@@ -249,7 +249,7 @@ class AlphaFold(nn.Module):
         outputs["single"] = s
 
         # TODO bshor: this is needed for aux heads, but shouldn't really be part of the output
-        outputs["start_ligand_ind"] = n_res
+        outputs["start_ligand_ind"] = torch.tensor([n_res]).to(device)
 
         del z
 
@@ -367,8 +367,11 @@ class AlphaFold(nn.Module):
         # Run auxiliary heads
         outputs.update(self.aux_heads(outputs))
 
-        affinity_2d = torch.sum(torch.softmax(outputs["affinity_2d_logits"], -1) * torch.linspace(0, 15, 32), dim=-1)
-        affinity_1d = torch.sum(torch.softmax(outputs["affinity_1d_logits"], -1) * torch.linspace(0, 15, 32), dim=-1)
-        print("Affinity summary", batch["affinity"].flatten()[0], affinity_2d[0], affinity_1d[0])
+        affinity_2d = torch.sum(torch.softmax(outputs["affinity_2d_logits"], -1).cpu() * torch.linspace(0, 15, 32),
+                                dim=-1)
+        affinity_1d = torch.sum(torch.softmax(outputs["affinity_1d_logits"], -1).cpu() * torch.linspace(0, 15, 32),
+                                dim=-1)
+        gt_affinity = batch["affinity"].flatten()[0] if "affinity" in batch else None
+        print("Affinity summary", gt_affinity, affinity_2d[0], affinity_1d[0])
 
         return outputs

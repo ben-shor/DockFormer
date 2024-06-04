@@ -227,6 +227,7 @@ def manual_main():
     seed = 42
     seed_everything(seed, workers=True)
     output_dir = TRAIN_OUTPUT_DIR
+    os.makedirs(output_dir, exist_ok=True)
 
     config = model_config(
         "initial_training",
