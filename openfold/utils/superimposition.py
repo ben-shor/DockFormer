@@ -31,14 +31,16 @@ def _superimpose_np(reference, coords):
     sup = SVDSuperimposer()
     sup.set(reference, coords)
     sup.run()
-    return sup.get_transformed(), sup.get_rms()
+    rotran = sup.get_rotran()
+    return sup.get_transformed(), sup.get_rms(), rotran
 
 
 def _superimpose_single(reference, coords):
     reference_np = reference.detach().cpu().numpy()    
     coords_np = coords.detach().cpu().numpy()
-    superimposed, rmsd = _superimpose_np(reference_np, coords_np)
-    return coords.new_tensor(superimposed), coords.new_tensor(rmsd)
+    superimposed, rmsd, rotran = _superimpose_np(reference_np, coords_np)
+    rotran = (torch.tensor(rotran[0]), torch.tensor(rotran[1]))
+    return coords.new_tensor(superimposed), coords.new_tensor(rmsd), rotran
 
 
 def superimpose(reference, coords, mask):
@@ -67,10 +69,11 @@ def superimpose(reference, coords, mask):
     flat_mask = mask.reshape((-1,) + mask.shape[-1:])
     superimposed_list = []
     rmsds = []
+    rotrans = []
     for r, c, m in zip(flat_reference, flat_coords, flat_mask):
         r_unmasked_coords = select_unmasked_coords(r, m)
         c_unmasked_coords = select_unmasked_coords(c, m)
-        superimposed, rmsd = _superimpose_single(
+        superimposed, rmsd, rotran = _superimpose_single(
             r_unmasked_coords, 
             c_unmasked_coords
         )
@@ -86,9 +89,14 @@ def superimpose(reference, coords, mask):
 
         superimposed_list.append(superimposed_full_size)
         rmsds.append(rmsd)
+        rotrans.append(rotran)
 
     superimposed_stacked = torch.stack(superimposed_list, dim=0)
     rmsds_stacked = torch.stack(rmsds, dim=0)
+    rots = [r for r, t in rotrans]
+    rots_stacked = torch.stack(rots, dim=0)
+    trans = [t for r, t in rotrans]
+    trans_stacked = torch.stack(trans, dim=0)
 
     superimposed_reshaped = superimposed_stacked.reshape(
         batch_dims + coords.shape[-2:]
@@ -97,4 +105,4 @@ def superimpose(reference, coords, mask):
         batch_dims
     )
 
-    return superimposed_reshaped, rmsds_reshaped
+    return superimposed_reshaped, rmsds_reshaped, rots_stacked, trans_stacked

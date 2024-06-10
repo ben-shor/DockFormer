@@ -28,7 +28,7 @@ def get_rmsd(gt_protein_path: str, gt_ligand_path: str, pred_protein_path: str, 
     super_imposer = Bio.PDB.Superimposer()
 
     ref_atoms = [res["CA"] for res in gt_protein[gt_chain_id].get_residues() if "CA" in res
-                 and Bio.SeqUtils.seq1(res.get_resname()) not in ("X", "") and res.id[1] > 0]
+                 and Bio.SeqUtils.seq1(res.get_resname()) not in ("X", "")]
     sample_atoms = [res["CA"] for res in pred_protein.get_residues() if "CA" in res]
 
     # debug issues

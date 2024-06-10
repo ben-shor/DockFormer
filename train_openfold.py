@@ -1,4 +1,4 @@
-from env_consts import TRAIN_DIR, VAL_DIR, TRAIN_OUTPUT_DIR
+import time
 import os
 
 from lightning.pytorch import seed_everything
@@ -21,7 +21,9 @@ from openfold.utils.validation_metrics import (
     drmsd,
     gdt_ts,
     gdt_ha,
+    rmsd,
 )
+from env_consts import TRAIN_DIR, VAL_DIR, TRAIN_OUTPUT_DIR
 
 
 from openfold.utils.logger import PerformanceLoggingCallback
@@ -135,22 +137,25 @@ class OpenFoldWrapper(pl.LightningModule):
     ):
         metrics = {}
         
-        gt_coords = batch["all_atom_positions"]
-        pred_coords = outputs["final_atom_positions"]
-        all_atom_mask = batch["all_atom_mask"]
+        protein_gt_coords = batch["all_atom_positions"]
+        protein_pred_coords = outputs["final_atom_positions"]
+        protein_all_atom_mask = batch["all_atom_mask"]
+
+        ligand_positions = outputs["sm"]["ligand_atom_positions"][-1]
+        ligand_gt_positions = batch["gt_ligand_positions"]
     
         # This is super janky for superimposition. Fix later
-        gt_coords_masked = gt_coords * all_atom_mask[..., None]
-        pred_coords_masked = pred_coords * all_atom_mask[..., None]
+        gt_coords_masked = protein_gt_coords * protein_all_atom_mask[..., None]
+        pred_coords_masked = protein_pred_coords * protein_all_atom_mask[..., None]
         ca_pos = residue_constants.atom_order["CA"]
         gt_coords_masked_ca = gt_coords_masked[..., ca_pos, :]
         pred_coords_masked_ca = pred_coords_masked[..., ca_pos, :]
-        all_atom_mask_ca = all_atom_mask[..., ca_pos]
+        all_atom_mask_ca = protein_all_atom_mask[..., ca_pos]
     
         lddt_ca_score = lddt_ca(
-            pred_coords,
-            gt_coords,
-            all_atom_mask,
+            protein_pred_coords,
+            protein_gt_coords,
+            protein_all_atom_mask,
             eps=self.config.globals.eps,
             per_residue=False,
         )
@@ -164,9 +169,16 @@ class OpenFoldWrapper(pl.LightningModule):
         )
    
         metrics["drmsd_ca"] = drmsd_ca_score
+
+        drmsd_intra_ligand_score = drmsd(
+            ligand_positions,
+            ligand_gt_positions,
+        )
+
+        metrics["drmsd_intra_ligand"] = drmsd_intra_ligand_score
     
         if(superimposition_metrics):
-            superimposed_pred, alignment_rmsd = superimpose(
+            superimposed_pred, alignment_rmsd, rots, transs = superimpose(
                 gt_coords_masked_ca, pred_coords_masked_ca, all_atom_mask_ca,
             )
             gdt_ts_score = gdt_ts(
@@ -176,10 +188,14 @@ class OpenFoldWrapper(pl.LightningModule):
                 superimposed_pred, gt_coords_masked_ca, all_atom_mask_ca
             )
 
-            metrics["alignment_rmsd"] = alignment_rmsd
+            metrics["protein_alignment_rmsd"] = alignment_rmsd
             metrics["gdt_ts"] = gdt_ts_score
             metrics["gdt_ha"] = gdt_ha_score
-    
+
+            superimposed_ligand_coords = ligand_positions @ rots + transs[:, None, :]
+            metrics["ligand_alignment_rmsd"] = rmsd(ligand_gt_positions, superimposed_ligand_coords)
+            print("ligand rmsd:", metrics["ligand_alignment_rmsd"])
+
         return metrics
 
     def configure_optimizers(self, 
@@ -246,7 +262,7 @@ def manual_main():
         batch_seed=seed,
         train_data_dir=TRAIN_DIR,
         val_data_dir=VAL_DIR,
-        train_epoch_len=100,
+        train_epoch_len=5,
     )
 
     checkpoint_dir = os.path.join(output_dir, "checkpoint")
@@ -292,11 +308,16 @@ def manual_main():
     wandb_run_id_path = os.path.join(output_dir, "wandb_run_id.txt")
 
     # Initialize WandbLogger and save run_id
-    if not os.path.exists(wandb_run_id_path):
+    local_rank = int(os.getenv('LOCAL_RANK', '0'))
+    if local_rank == 0 and not os.path.exists(wandb_run_id_path):
         wandb_logger = WandbLogger(project=wandb_project_name, save_dir=output_dir)
         with open(wandb_run_id_path, 'w') as f:
             f.write(wandb_logger.experiment.id)
     else:
+        # Necessary for multi-node training https://github.com/rstrudel/segmenter/issues/22
+        while not os.path.exists(wandb_run_id_path):
+            print(f"Waiting for run_id file to be created ({local_rank})", flush=True)
+            time.sleep(1)
         with open(wandb_run_id_path, 'r') as f:
             run_id = f.read().strip()
         wandb_logger = WandbLogger(project=wandb_project_name, save_dir=output_dir, resume='must', id=run_id)
@@ -309,7 +330,7 @@ def manual_main():
         # strategy="ddp", devices=1, num_nodes=2,  # For multi-node training
         reload_dataloaders_every_n_epochs=1,
         # accumulate_grad_batches=32, # can be used to simulate larger batch sizes
-        check_val_every_n_epoch=10,
+        check_val_every_n_epoch=1,
         callbacks=callbacks,
         logger=loggers,
     )
