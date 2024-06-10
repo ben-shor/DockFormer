@@ -78,7 +78,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         input_pdb_path = os.path.join(parent_dir, input_data["input_structure"])
         input_structure = self.data_pipeline.process_pdb(pdb_path=input_pdb_path)
         metadata = {
-            "resolution": input_data["resolution"],
+            "resolution": input_data.get("resolution", 99.0),
             "seq": input_structure["sequence"][0].decode("ascii"),
             "input_path": input_path,
             "input_name": os.path.basename(input_path).split(".")[0],
@@ -555,17 +555,3 @@ class DummyDataLoader(L.LightningDataModule):
 
     def train_dataloader(self):
         return torch.utils.data.DataLoader(self.dataset)
-
-
-if __name__ == '__main__':
-    config = model_config(
-        "initial_training",
-        train=True,
-        low_prec=True).data
-
-    dataset = OpenFoldSingleDataset("/Users/benshor/Documents/Data/202401_pred_affinity/sample_input_folders/json",
-                                    config=config,
-                                    mode="train")
-    a = dataset[0]
-    # print(dataset[0]["input"].keys())
-    print(dataset[0])

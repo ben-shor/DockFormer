@@ -164,9 +164,6 @@ def get_molecule_from_output(atoms_atype: List[int], bonds: List[Tuple[int, int,
         bond_type = POSSIBLE_BOND_TYPES[bond_type_idx]
         if bond_type == "other":
             bond_type = Chem.rdchem.BondType.SINGLE  # TODO bshor: add a default bond type
-        if bond_type == Chem.rdchem.BondType.AROMATIC:
-            # TODO bshor: we should handle aromatic, but this causes "Can't kekulize mol" issues
-            bond_type = Chem.rdchem.BondType.SINGLE
         mol.AddBond(int(atom1), int(atom2), bond_type)
 
     # Set atom positions
@@ -219,7 +216,7 @@ def save_output_structure(aatype, residue_index, plddt, final_atom_protein_posit
     # combined = Chem.CombineMols(protein_obj, ligand)
 
     with open(ligand_output_path, 'w') as f:
-        f.write(Chem.MolToPDBBlock(ligand))
+        f.write(Chem.MolToMolBlock(ligand, kekulize=False))
     print("Output written to", protein_output_path, ligand_output_path)
 
 

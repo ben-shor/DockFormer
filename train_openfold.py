@@ -51,14 +51,14 @@ class OpenFoldWrapper(pl.LightningModule):
             self.log(
                 f"{phase}/{loss_name}", 
                 indiv_loss, 
-                on_step=train, on_epoch=(not train), logger=True,
+                on_step=train, on_epoch=(not train), logger=True, sync_dist=True
             )
 
-            if(train):
+            if train:
                 self.log(
                     f"{phase}/{loss_name}_epoch",
                     indiv_loss,
-                    on_step=False, on_epoch=True, logger=True,
+                    on_step=False, on_epoch=True, logger=True, sync_dist=True
                 )
 
         with torch.no_grad():
@@ -72,7 +72,7 @@ class OpenFoldWrapper(pl.LightningModule):
             self.log(
                 f"{phase}/{k}",
                 torch.mean(v),
-                on_step=False, on_epoch=True, logger=True
+                on_step=False, on_epoch=True, logger=True, sync_dist=True
             )
 
     def training_step(self, batch, batch_idx):

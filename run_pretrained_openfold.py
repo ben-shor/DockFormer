@@ -48,13 +48,12 @@ def list_files_with_extensions(dir, extensions):
     return [f for f in os.listdir(dir) if f.endswith(extensions)]
 
 
-def manual_main():
+def run_on_folder(input_dir: str, output_dir: str, ckpt_path: str):
     config_preset = "initial_training"
     skip_relaxation = True
     save_outputs = False
     device_name = "cuda" if torch.cuda.is_available() else "cpu"
 
-    ckpt_path = CKPT_PATH
     if ckpt_path is None:
         ckpt_path = get_latest_checkpoint(os.path.join(TRAIN_OUTPUT_DIR, "checkpoint"))
         print("Using latest checkpoint: ", ckpt_path)
@@ -65,11 +64,11 @@ def manual_main():
         config,
         model_device=device_name,
         openfold_checkpoint_path=ckpt_path,
-        output_dir=TEST_OUTPUT_DIR)
+        output_dir=output_dir)
     print("Model loaded")
     model, output_directory = next(model_generator)
 
-    dataset = OpenFoldSingleDataset(data_dir=TEST_INPUT_DIR, config=config.data, mode="predict")
+    dataset = OpenFoldSingleDataset(data_dir=input_dir, config=config.data, mode="predict")
     for i, processed_feature_dict in enumerate(dataset):
         tag = dataset.get_metadata_for_idx(i)["input_name"]
         output_name = f"{tag}_predicted"
@@ -78,7 +77,7 @@ def manual_main():
         processed_feature_dict = {key: value.unsqueeze(0).to(device_name)
                                   for key, value in processed_feature_dict.items()}
 
-        out = run_model(model, processed_feature_dict, tag, TEST_OUTPUT_DIR)
+        out = run_model(model, processed_feature_dict, tag, output_dir)
 
         # Toss out the recycling dimensions --- we don't need them anymore
         processed_feature_dict = tensor_tree_map(
@@ -99,7 +98,7 @@ def manual_main():
 
         protein_output_path = os.path.join(output_directory, f'{output_name}_protein.pdb')
         protein_binding_output_path = os.path.join(output_directory, f'{output_name}_protein_affinity.pdb')
-        ligand_output_path = os.path.join(output_directory, f'{output_name}_ligand.pdb')
+        ligand_output_path = os.path.join(output_directory, f'{output_name}_ligand.sdf')
 
         save_output_structure(
             aatype=processed_feature_dict["aatype"][0],
@@ -136,4 +135,4 @@ def manual_main():
 
 
 if __name__ == "__main__":
-    manual_main()
+    run_on_folder(TEST_INPUT_DIR, TEST_OUTPUT_DIR, CKPT_PATH)

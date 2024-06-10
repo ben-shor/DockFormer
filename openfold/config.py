@@ -17,11 +17,11 @@ def model_config(
 
         pass
     elif name == "finetune_affinity":
-        c.loss.violation.weight = 1.
+        # c.loss.violation.weight = 1.  # unclear if this is essential, seems to resolve itself
         c.loss.affinity2d.weight = 0.5
         c.loss.affinity1d.weight = 0.5
         c.loss.binding_site.weight = 0.5
-        c.loss.positions_inter_distogram.weight = 0.5  # this is not essential given fape
+        c.loss.positions_inter_distogram.weight = 0.5  # this is not essential given fape?
     else:
         raise ValueError("Invalid model name")
 
@@ -215,7 +215,7 @@ config = mlc.ConfigDict(
                 "no_heads_msa": 8,
                 "no_heads_pair": 4,
                 # "no_blocks": 48,
-                "no_blocks": 24,
+                "no_blocks": 2,
                 "transition_n": 4,
                 "msa_dropout": 0.15,
                 "pair_dropout": 0.25,
@@ -296,7 +296,7 @@ config = mlc.ConfigDict(
             },
             "positions_inter_distogram": {
                 "max_dist": 20.0,
-                "weight": 0,
+                "weight": 0.0,
             },
             "positions_intra_distogram": {
                 "max_dist": 10.0,
@@ -309,7 +309,7 @@ config = mlc.ConfigDict(
                 "weight": 0.0,
             },
             "binding_site": {
-                "weight": 0,
+                "weight": 0.0,
             },
             "affinity2d": {
                 "min_bin": 0,
@@ -321,7 +321,7 @@ config = mlc.ConfigDict(
                 "min_bin": 0,
                 "max_bin": 15,
                 "no_bins": aux_affinity_bins,
-                "weight": 0,
+                "weight": 0.0,
             },
             "fape": {
                 "backbone": {
