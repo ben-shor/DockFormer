@@ -39,7 +39,7 @@ def _superimpose_single(reference, coords):
     reference_np = reference.detach().cpu().numpy()    
     coords_np = coords.detach().cpu().numpy()
     superimposed, rmsd, rotran = _superimpose_np(reference_np, coords_np)
-    rotran = (torch.tensor(rotran[0]), torch.tensor(rotran[1]))
+    rotran = (coords.new_tensor(rotran[0]), coords.new_tensor(rotran[1]))
     return coords.new_tensor(superimposed), coords.new_tensor(rmsd), rotran
 
 

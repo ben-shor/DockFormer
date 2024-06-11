@@ -196,6 +196,9 @@ class OpenFoldWrapper(pl.LightningModule):
 
             superimposed_ligand_coords = ligand_positions @ rots + transs[:, None, :]
             metrics["ligand_alignment_rmsd"] = rmsd(ligand_gt_positions, superimposed_ligand_coords)
+            metrics["ligand_alignment_rmsd_under_2"] = torch.mean((metrics["ligand_alignment_rmsd"] < 2).float())
+            metrics["ligand_alignment_rmsd_under_5"] = torch.mean((metrics["ligand_alignment_rmsd"] < 5).float())
+
             print("ligand rmsd:", metrics["ligand_alignment_rmsd"])
 
         return metrics
@@ -264,7 +267,7 @@ def manual_main():
         batch_seed=seed,
         train_data_dir=TRAIN_DIR,
         val_data_dir=VAL_DIR,
-        train_epoch_len=5,
+        train_epoch_len=1000,
     )
 
     checkpoint_dir = os.path.join(output_dir, "checkpoint")
@@ -332,7 +335,7 @@ def manual_main():
         # strategy="ddp", devices=1, num_nodes=2,  # For multi-node training
         reload_dataloaders_every_n_epochs=1,
         # accumulate_grad_batches=32, # can be used to simulate larger batch sizes
-        check_val_every_n_epoch=1,
+        check_val_every_n_epoch=10,
         callbacks=callbacks,
         logger=loggers,
     )
