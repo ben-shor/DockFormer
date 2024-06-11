@@ -1,3 +1,6 @@
+# This import must be on top to set the environment variables before importing other modules
+from env_consts import TRAIN_DIR, VAL_DIR, TRAIN_OUTPUT_DIR
+
 import time
 import os
 
@@ -23,7 +26,6 @@ from openfold.utils.validation_metrics import (
     gdt_ha,
     rmsd,
 )
-from env_consts import TRAIN_DIR, VAL_DIR, TRAIN_OUTPUT_DIR
 
 
 from openfold.utils.logger import PerformanceLoggingCallback
