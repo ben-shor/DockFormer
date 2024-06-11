@@ -1,6 +1,7 @@
+import json
+import sys
 # This import must be on top to set the environment variables before importing other modules
-from env_consts import TRAIN_DIR, VAL_DIR, TRAIN_OUTPUT_DIR
-
+import env_consts
 import time
 import os
 
@@ -26,9 +27,6 @@ from openfold.utils.validation_metrics import (
     gdt_ha,
     rmsd,
 )
-
-
-from openfold.utils.logger import PerformanceLoggingCallback
 
 
 class OpenFoldWrapper(pl.LightningModule):
@@ -72,7 +70,7 @@ class OpenFoldWrapper(pl.LightningModule):
                 superimposition_metrics=(not train)
             )
 
-        for k,v in other_metrics.items():
+        for k, v in other_metrics.items():
             self.log(
                 f"{phase}/{k}",
                 torch.mean(v),
@@ -80,7 +78,7 @@ class OpenFoldWrapper(pl.LightningModule):
             )
 
     def training_step(self, batch, batch_idx):
-        if(self.ema.device != batch["aatype"].device):
+        if self.ema.device != batch["aatype"].device:
             self.ema.to(batch["aatype"].device)
 
         # ground_truth = batch.pop('gt_features', None)
@@ -106,7 +104,7 @@ class OpenFoldWrapper(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         # At the start of validation, load the EMA weights
-        if(self.cached_weights is None):
+        if self.cached_weights is None:
             # model.state_dict() contains references to model weights rather
             # than copies. Therefore, we need to clone them before calling 
             # load_state_dict().
@@ -244,34 +242,46 @@ class OpenFoldWrapper(pl.LightningModule):
         self.last_lr_step = lr_step
 
 
-def manual_main():
+def override_config(base_config, overriding_config):
+    for k, v in overriding_config.items():
+        if isinstance(v, dict):
+            base_config[k] = override_config(base_config[k], v)
+        else:
+            base_config[k] = v
+    return base_config
+
+
+def train(override_config_path: str):
+    run_config = json.load(open(override_config_path, "r"))
     seed = 42
     seed_everything(seed, workers=True)
-    output_dir = TRAIN_OUTPUT_DIR
+    output_dir = run_config["train_output_dir"]
     os.makedirs(output_dir, exist_ok=True)
 
     config = model_config(
-        "initial_training",
+        run_config.get("stage", "initial_training"),
         train=True,
         low_prec=True
     )
+    config = override_config(config, run_config.get("override_conf", {}))
 
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device_name = "cuda" if torch.cuda.is_available() else "cpu"
     model_module = OpenFoldWrapper(config)
 
+    # for debugging memory:
     # torch.cuda.memory._record_memory_history()
 
     data_module = OpenFoldDataModule(
         config=config.data,
         batch_seed=seed,
-        train_data_dir=TRAIN_DIR,
-        val_data_dir=VAL_DIR,
-        train_epoch_len=1000,
+        train_data_dir=run_config["train_input_dir"],
+        val_data_dir=run_config["val_input_dir"],
+        train_epoch_len=run_config.get("train_epoch_len", 1000),
     )
 
     checkpoint_dir = os.path.join(output_dir, "checkpoint")
-    ckpt_path = get_latest_checkpoint(checkpoint_dir)
+    ckpt_path = run_config.get("ckpt_path", get_latest_checkpoint(checkpoint_dir))
 
     if ckpt_path:
         print(f"Resuming from checkpoint: {ckpt_path}")
@@ -293,23 +303,12 @@ def manual_main():
     )
     callbacks.append(mc)
 
-    if True: # (args.log_performance):
-        # global_batch_size = args.num_nodes * args.gpus
-        perf = PerformanceLoggingCallback(
-            log_file=os.path.join(output_dir, "performance_log.json"),
-            global_batch_size=1,
-        )
-        callbacks.append(perf)
-
-    if True: # (args.log_lr):
-        lr_monitor = LearningRateMonitor(logging_interval="step")
-        callbacks.append(lr_monitor)
+    lr_monitor = LearningRateMonitor(logging_interval="step")
+    callbacks.append(lr_monitor)
 
     loggers = []
-    csv_logger = CSVLogger("logs", name="evodocker_try2", flush_logs_every_n_steps=1)
-    loggers.append(csv_logger)
 
-    wandb_project_name = "EvoDocker2_with_ligand"
+    wandb_project_name = "EvoDocker3"
     wandb_run_id_path = os.path.join(output_dir, "wandb_run_id.txt")
 
     # Initialize WandbLogger and save run_id
@@ -327,15 +326,21 @@ def manual_main():
             run_id = f.read().strip()
         wandb_logger = WandbLogger(project=wandb_project_name, save_dir=output_dir, resume='must', id=run_id)
     loggers.append(wandb_logger)
+    wandb_logger.experiment.config.update(run_config)
+
+    strategy_params = {"strategy": "auto"}
+    if run_config.get("multi_node", False):
+        strategy_params["strategy"] = "ddp"
+        strategy_params["num_nodes"] = run_config["multi_node"]["num_nodes"]
+        strategy_params["devices"] = run_config["multi_node"]["devices"]
 
     trainer = pl.Trainer(
         accelerator=device_name,
         default_root_dir=output_dir,
-        strategy="auto",
-        # strategy="ddp", devices=1, num_nodes=2,  # For multi-node training
+        **strategy_params,
         reload_dataloaders_every_n_epochs=1,
         # accumulate_grad_batches=32, # can be used to simulate larger batch sizes
-        check_val_every_n_epoch=10,
+        check_val_every_n_epoch=run_config.get("check_val_every_n_epoch", 10),
         callbacks=callbacks,
         logger=loggers,
     )
@@ -349,15 +354,8 @@ def manual_main():
     # torch.cuda.memory._dump_snapshot("my_train_snapshot.pickle")
 
 
-def bool_type(bool_str: str):
-    bool_str_lower = bool_str.lower()
-    if bool_str_lower in ('false', 'f', 'no', 'n', '0'):
-        return False
-    elif bool_str_lower in ('true', 't', 'yes', 'y', '1'):
-        return True
-    else:
-        raise ValueError(f'Cannot interpret {bool_str} as bool')
-
-
 if __name__ == "__main__":
-    manual_main()
+    if len(sys.argv) > 1:
+        train(sys.argv[1])
+    train(os.path.join(os.path.dirname(__file__), "run_config.json"))
+
