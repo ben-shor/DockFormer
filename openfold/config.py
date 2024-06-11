@@ -186,8 +186,9 @@ config = mlc.ConfigDict(
             "_mask_trans": False,
             "structure_input_embedder": {
                 "protein_tf_dim": 22,
-                "ligand_tf_dim": 16,
-                "ligand_bond_dim": 5,
+                # len(POSSIBLE_ATOM_TYPES) + len(POSSIBLE_CHARGES) + len(POSSIBLE_CHIRALITIES)
+                "ligand_tf_dim": 34,
+                "ligand_bond_dim": 6,
                 "c_z": c_z,
                 "c_m": c_m,
                 "relpos_k": 32,

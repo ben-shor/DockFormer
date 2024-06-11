@@ -107,6 +107,8 @@ def run_on_folder(input_dir: str, output_dir: str, ckpt_path: str):
             final_atom_protein_positions=out["final_atom_positions"][0],
             final_atom_mask=out["final_atom_mask"][0],
             ligand_atype=processed_feature_dict["ligand_atype"][0][0],
+            ligand_chiralities=processed_feature_dict["ligand_chirality"][0][0],
+            ligand_charges=processed_feature_dict["ligand_charge"][0][0],
             ligand_bonds=processed_feature_dict["ligand_bonds"][0][0],
             final_ligand_atom_positions=out["sm"]["ligand_atom_positions"][-1][0],
             protein_output_path=protein_output_path,

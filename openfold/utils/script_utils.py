@@ -12,7 +12,7 @@ from rdkit import Chem
 
 from openfold.model.model import AlphaFold
 from openfold.np import residue_constants, protein
-from openfold.utils.consts import POSSIBLE_ATOM_TYPES, POSSIBLE_BOND_TYPES
+from openfold.utils.consts import POSSIBLE_ATOM_TYPES, POSSIBLE_BOND_TYPES, POSSIBLE_CHARGES, POSSIBLE_CHIRALITIES
 from openfold.utils.import_weights import (
     import_openfold_weights_
 )
@@ -147,23 +147,22 @@ def run_model(model, batch, tag, output_dir):
     return out
 
 
-def get_molecule_from_output(atoms_atype: List[int], bonds: List[Tuple[int, int, int]],
-                             atom_positions: List[Tuple[float, float, float]]):
+def get_molecule_from_output(atoms_atype: List[int], atom_chiralities: List[int], atom_charges: List[int],
+                             bonds: List[Tuple[int, int, int]], atom_positions: List[Tuple[float, float, float]]):
     mol = Chem.RWMol()
 
-    # Add atoms
-    for atype_idx in atoms_atype:
-        symbol = POSSIBLE_ATOM_TYPES[atype_idx]
-        if symbol == "other":
-            symbol = "C"  # TODO bshor: add a default atom type
-        mol.AddAtom(Chem.Atom(symbol))
+    assert len(atoms_atype) == len(atom_chiralities) == len(atom_charges) == len(atom_positions)
+    for atype_idx, chirality_idx, charge_idx in zip(atoms_atype, atom_chiralities, atom_charges):
+        new_atom = Chem.Atom(POSSIBLE_ATOM_TYPES[atype_idx])
+        new_atom.SetChiralTag(POSSIBLE_CHIRALITIES[chirality_idx])
+        new_atom.SetFormalCharge(POSSIBLE_CHARGES[charge_idx])
+
+        mol.AddAtom(new_atom)
 
     # Add bonds
     for bond in bonds:
         atom1, atom2, bond_type_idx = bond
         bond_type = POSSIBLE_BOND_TYPES[bond_type_idx]
-        if bond_type == "other":
-            bond_type = Chem.rdchem.BondType.SINGLE  # TODO bshor: add a default bond type
         mol.AddBond(int(atom1), int(atom2), bond_type)
 
     # Set atom positions
@@ -175,8 +174,9 @@ def get_molecule_from_output(atoms_atype: List[int], bonds: List[Tuple[int, int,
 
 
 def save_output_structure(aatype, residue_index, plddt, final_atom_protein_positions, final_atom_mask, ligand_atype,
-                          ligand_bonds, final_ligand_atom_positions, protein_output_path, ligand_output_path,
-                          protein_affinity_output_path, affinity, binding_site_probs):
+                          ligand_chiralities, ligand_charges, ligand_bonds, final_ligand_atom_positions,
+                          protein_output_path, ligand_output_path, protein_affinity_output_path, affinity,
+                          binding_site_probs):
     plddt_b_factors = numpy.repeat(
         plddt[..., None], residue_constants.atom_type_num, axis=-1
     )
@@ -210,7 +210,8 @@ def save_output_structure(aatype, residue_index, plddt, final_atom_protein_posit
     with open(protein_affinity_output_path, 'w') as fp:
         fp.write(protein.to_pdb(protein_binding_site))
 
-    ligand = get_molecule_from_output(ligand_atype, ligand_bonds, final_ligand_atom_positions)
+    ligand = get_molecule_from_output(ligand_atype, ligand_chiralities, ligand_charges, ligand_bonds,
+                                      final_ligand_atom_positions)
     # protein_obj = Chem.MolFromPDBFile(output_path, sanitize=False)
     # assert protein_obj is not None, "Failed to unrelaxed read protein from PDB file"
     # combined = Chem.CombineMols(protein_obj, ligand)

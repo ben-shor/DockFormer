@@ -125,6 +125,8 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
             "ligand_target_feat": ligand_feats["ligand_target_feat"],
             "ligand_bonds_feat": ligand_feats["ligand_bonds_feat"],
             "ligand_atype": ligand_feats["ligand_atype"],
+            "ligand_chirality": ligand_feats["ligand_chirality"],
+            "ligand_charge": ligand_feats["ligand_charge"],
             "ligand_bonds": ligand_feats["ligand_bonds"],
         }
 

@@ -22,7 +22,7 @@ from torch import nn
 from openfold.np import residue_constants, protein
 from rdkit import Chem
 
-from openfold.utils.consts import POSSIBLE_BOND_TYPES, POSSIBLE_ATOM_TYPES
+from openfold.utils.consts import POSSIBLE_BOND_TYPES, POSSIBLE_ATOM_TYPES, POSSIBLE_CHARGES, POSSIBLE_CHIRALITIES
 
 FeatureDict = MutableMapping[str, np.ndarray]
 FeatureTensorDict = MutableMapping[str, torch.Tensor]
@@ -96,22 +96,15 @@ def make_pdb_features(
 
 
 def get_atom_features(atom: Chem.Atom):
-    if atom.GetSymbol() in POSSIBLE_ATOM_TYPES:
-        atom_type = POSSIBLE_ATOM_TYPES.index(atom.GetSymbol())
-    else:
-        atom_type = len(POSSIBLE_ATOM_TYPES) - 1  # Other
+    atom_type = POSSIBLE_ATOM_TYPES.index(atom.GetSymbol())
+    atom_charge = POSSIBLE_CHARGES.index(max(min(atom.GetFormalCharge(), 1), -1))
+    atom_chirality = POSSIBLE_CHIRALITIES.index(atom.GetChiralTag())
 
-    return {"atom_type": atom_type}
+    return {"atom_type": atom_type, "atom_charge": atom_charge, "atom_chirality": atom_chirality}
 
 
 def get_bond_features(bond: Chem.Bond):
-    chem_bond_type = bond.GetBondType()
-    if chem_bond_type in POSSIBLE_BOND_TYPES:
-        bond_type = POSSIBLE_BOND_TYPES.index(chem_bond_type)
-    else:
-        print("Unknown bond type", chem_bond_type)
-        bond_type = len(POSSIBLE_BOND_TYPES) - 1  # Other
-
+    bond_type = POSSIBLE_BOND_TYPES.index(bond.GetBondType())
     return {"bond_type": bond_type}
 
 
@@ -163,7 +156,15 @@ class DataPipeline:
 
         atom_types = torch.tensor(np.array([atom["atom_type"] for atom in atoms_features], dtype=np.int64))
         atom_types_one_hot = nn.functional.one_hot(atom_types, num_classes=len(POSSIBLE_ATOM_TYPES), )
+        atom_charges = torch.tensor(np.array([atom["atom_charge"] for atom in atoms_features], dtype=np.int64))
+        atom_charges_one_hot = nn.functional.one_hot(atom_charges, num_classes=len(POSSIBLE_CHARGES))
+        atom_chiralities = torch.tensor(np.array([atom["atom_chirality"] for atom in atoms_features], dtype=np.int64))
+        atom_chiralities_one_hot = nn.functional.one_hot(atom_chiralities, num_classes=len(POSSIBLE_CHIRALITIES))
 
+        ligand_target_feat = torch.cat([atom_types_one_hot.float(), atom_charges_one_hot.float(),
+                                        atom_chiralities_one_hot.float()], dim=1)
+
+        # create one-hot matrix encoding for bonds
         ligand_bonds_feat = torch.zeros((len(atoms_features), len(atoms_features), len(POSSIBLE_BOND_TYPES)))
         ligand_bonds = []
         for bond in ligand.GetBonds():
@@ -173,13 +174,17 @@ class DataPipeline:
             ligand_bonds.append((atom1_idx, atom2_idx, bond_features["bond_type"]))
             ligand_bonds_feat[atom1_idx, atom2_idx, bond_features["bond_type"]] = 1
 
-        atom_types = torch.tensor(np.array([[atom["atom_type"] for atom in atoms_features]], dtype=np.int64))
-        ligand_bonds = torch.tensor(np.array([ligand_bonds]))
+        batched_atom_types = atom_types[None]
+        batched_atom_charges = atom_charges[None]
+        batched_atom_chiralities = atom_chiralities[None]
+        batched_ligand_bonds = torch.tensor(ligand_bonds, dtype=torch.int64)[None]
 
         return {
-            "ligand_atype": atom_types,
-            "ligand_bonds": ligand_bonds,
-            "ligand_target_feat": atom_types_one_hot.float(),
+            "ligand_atype": batched_atom_types,
+            "ligand_charge": batched_atom_charges,
+            "ligand_chirality": batched_atom_chiralities,
+            "ligand_bonds": batched_ligand_bonds,
+            "ligand_target_feat": ligand_target_feat.float(),
             "ligand_bonds_feat": ligand_bonds_feat.float(),
         }
 
