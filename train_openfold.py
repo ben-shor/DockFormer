@@ -357,5 +357,6 @@ def train(override_config_path: str):
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         train(sys.argv[1])
-    train(os.path.join(os.path.dirname(__file__), "run_config.json"))
+    else:
+        train(os.path.join(os.path.dirname(__file__), "run_config.json"))
 

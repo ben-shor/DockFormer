@@ -1649,7 +1649,6 @@ def binding_site_loss(
     pos_class_weight: float,
     **kwargs,
 ) -> torch.Tensor:
-    # remove ligand predictions
     binding_site_mask = binding_site_mask.unsqueeze(-1)
     criterion = nn.BCEWithLogitsLoss(pos_weight=logits.new_tensor([pos_class_weight]))
     loss = criterion(logits, binding_site_mask)

@@ -12,6 +12,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import sys
+
 from env_consts import TEST_INPUT_DIR, TEST_OUTPUT_DIR, TRAIN_OUTPUT_DIR, CKPT_PATH
 import json
 import logging
@@ -48,17 +50,30 @@ def list_files_with_extensions(dir, extensions):
     return [f for f in os.listdir(dir) if f.endswith(extensions)]
 
 
-def run_on_folder(input_dir: str, output_dir: str, ckpt_path: str):
+def override_config(base_config, overriding_config):
+    for k, v in overriding_config.items():
+        if isinstance(v, dict):
+            base_config[k] = override_config(base_config[k], v)
+        else:
+            base_config[k] = v
+    return base_config
+
+
+def run_on_folder(input_dir: str, output_dir: str, run_config_path: str):
     config_preset = "initial_training"
     skip_relaxation = True
     save_outputs = False
     device_name = "cuda" if torch.cuda.is_available() else "cpu"
 
+    run_config = json.load(open(run_config_path))
+
+    ckpt_path = CKPT_PATH
     if ckpt_path is None:
-        ckpt_path = get_latest_checkpoint(os.path.join(TRAIN_OUTPUT_DIR, "checkpoint"))
-        print("Using latest checkpoint: ", ckpt_path)
+        ckpt_path = get_latest_checkpoint(os.path.join(run_config["train_output_dir"], "checkpoint"))
+    print("Using checkpoint: ", ckpt_path)
 
     config = model_config(config_preset, long_sequence_inference=False)
+    config = override_config(config, run_config.get("override_conf", {}))
 
     model_generator = load_models_from_command_line(
         config,
@@ -137,4 +152,5 @@ def run_on_folder(input_dir: str, output_dir: str, ckpt_path: str):
 
 
 if __name__ == "__main__":
-    run_on_folder(TEST_INPUT_DIR, TEST_OUTPUT_DIR, CKPT_PATH)
+    config_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "run_config.json")
+    run_on_folder(TEST_INPUT_DIR, TEST_OUTPUT_DIR, config_path)
