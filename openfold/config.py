@@ -175,6 +175,7 @@ config = mlc.ConfigDict(
             # on long sequences (>1000 residues).
             "use_flash": False,
             "offload_inference": False,
+            "max_lr": 1e-3,
             "c_z": c_z,
             "c_m": c_m,
             "c_t": c_t,

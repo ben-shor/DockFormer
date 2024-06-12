@@ -1,5 +1,7 @@
 import json
 import sys
+from typing import Optional
+
 # This import must be on top to set the environment variables before importing other modules
 import env_consts
 import time
@@ -202,9 +204,12 @@ class OpenFoldWrapper(pl.LightningModule):
         return metrics
 
     def configure_optimizers(self, 
-        learning_rate: float = 1e-3,
+        learning_rate: Optional[float] = None,
         eps: float = 1e-5,
     ) -> torch.optim.Adam:
+        if learning_rate is None:
+            learning_rate = self.config.globals.max_lr
+
         # Ignored as long as a DeepSpeed optimizer is configured
         optimizer = torch.optim.Adam(
             self.model.parameters(), 
@@ -326,7 +331,7 @@ def train(override_config_path: str):
             run_id = f.read().strip()
         wandb_logger = WandbLogger(project=wandb_project_name, save_dir=output_dir, resume='must', id=run_id)
     loggers.append(wandb_logger)
-    wandb_logger.experiment.config.update(run_config)
+    wandb_logger.experiment.config.update(run_config, allow_val_change=True)
 
     strategy_params = {"strategy": "auto"}
     if run_config.get("multi_node", False):
