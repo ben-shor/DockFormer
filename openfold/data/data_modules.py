@@ -139,7 +139,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
             affinity = self._prepare_recycles(torch.tensor([input_data["affinity"]], dtype=torch.float32), num_recycles)
 
             flatten_residue_index = input_protein_feats["residue_index"][..., 0].flatten().tolist()
-            binding_site_mask = torch.zeros(n_res, dtype=torch.bool)
+            binding_site_mask = torch.zeros(n_res, dtype=torch.float32)
             for i in input_data["pocket_res_ids"]:
                 binding_site_mask[flatten_residue_index.index(i)] = True
             binding_site_mask = self._prepare_recycles(binding_site_mask, num_recycles)

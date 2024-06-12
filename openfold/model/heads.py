@@ -75,7 +75,7 @@ class AuxiliaryHeads(nn.Module):
 
         aux_out["affinity_1d_logits"] =  self.affinity_1d(outputs["single"])
 
-        aux_out["binding_site_logits"] = self.binding_site(outputs["single"])
+        aux_out["binding_site_logits"] = self.binding_site(outputs["single"], outputs["start_ligand_ind"])
 
         return aux_out
 
@@ -136,9 +136,9 @@ class BindingSitePredictor(nn.Module):
 
         self.linear = Linear(self.c_s, self.c_out, init="final")
 
-    def forward(self, s):
+    def forward(self, s, start_ligand_ind):
         # [*, N, C_out]
-        logits = self.linear(s)
+        logits = self.linear(s[:, :start_ligand_ind, :])
         return logits
 
 

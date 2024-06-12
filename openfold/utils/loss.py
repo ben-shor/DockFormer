@@ -1646,11 +1646,14 @@ def experimentally_resolved_loss(
 def binding_site_loss(
     logits: torch.Tensor,
     binding_site_mask: torch.Tensor,
+    pos_class_weight: float,
     **kwargs,
 ) -> torch.Tensor:
     # remove ligand predictions
-    errors = sigmoid_cross_entropy(logits, binding_site_mask)
-    return torch.mean(errors)
+    binding_site_mask = binding_site_mask.unsqueeze(-1)
+    criterion = nn.BCEWithLogitsLoss(pos_weight=logits.new_tensor([pos_class_weight]))
+    loss = criterion(logits, binding_site_mask)
+    return loss
 
 
 def chain_center_of_mass_loss(
