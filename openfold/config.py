@@ -310,7 +310,7 @@ config = mlc.ConfigDict(
                 "weight": 0.0,
             },
             "binding_site": {
-                "weight": 0.05,
+                "weight": 0.0,
                 "pos_class_weight": 20.0,
             },
             "affinity2d": {
