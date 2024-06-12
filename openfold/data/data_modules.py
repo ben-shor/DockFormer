@@ -137,6 +137,8 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
             gt_protein_feats = self.feature_pipeline.process_features(gt_protein_structure, self.mode)
 
             affinity = self._prepare_recycles(torch.tensor([input_data["affinity"]], dtype=torch.float32), num_recycles)
+            resolution = self._prepare_recycles(torch.tensor([input_data["resolution"]], dtype=torch.float32),
+                                                num_recycles)
 
             flatten_residue_index = input_protein_feats["residue_index"][..., 0].flatten().tolist()
             binding_site_mask = torch.zeros(n_res, dtype=torch.float32)
@@ -149,6 +151,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
                 **gt_protein_feats,  # most of the properties are used for loss (only seq and input_psuedo_beta are not)
                 "input_pseudo_beta": input_protein_feats["pseudo_beta"],
                 "gt_ligand_positions": ligand_feats["gt_ligand_positions"],
+                "resolution": resolution,
                 "affinity": affinity,
                 "binding_site_mask": binding_site_mask,
             }
