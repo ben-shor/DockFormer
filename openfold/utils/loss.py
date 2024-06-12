@@ -245,6 +245,7 @@ def sidechain_loss(
     clamp_distance: float = 10.0,
     length_scale: float = 10.0,
     eps: float = 1e-4,
+    only_include_ligand_atoms: bool = False,
     **kwargs,
 ) -> torch.Tensor:
     renamed_gt_frames = (
@@ -271,15 +272,23 @@ def sidechain_loss(
     ligand_atom_pos = ligand_atom_pos[-1]
     ligand_atom_pos = ligand_atom_pos.view(*batch_dims, -1, 3)
 
-    prot_lig_atom_pos = torch.cat([sidechain_atom_pos, ligand_atom_pos], dim=-2)
-
     gt_ligand_positions = gt_ligand_positions.view(*batch_dims, -1, 3)
-    gt_prot_lig_atom_pos = torch.cat([renamed_atom14_gt_positions, gt_ligand_positions], dim=-2)
+    if only_include_ligand_atoms:
+        prot_lig_atom_pos = ligand_atom_pos
+        gt_prot_lig_atom_pos = gt_ligand_positions
+    else:
+        prot_lig_atom_pos = torch.cat([sidechain_atom_pos, ligand_atom_pos], dim=-2)
+        gt_prot_lig_atom_pos = torch.cat([renamed_atom14_gt_positions, gt_ligand_positions], dim=-2)
 
-    renamed_atom14_gt_exists = torch.cat([renamed_atom14_gt_exists,
-                                          torch.ones_like(gt_ligand_positions[..., 0],
-                                                          dtype=torch.float32,
-                                                          device=renamed_atom14_gt_exists.device)], dim=-1)
+    if only_include_ligand_atoms:
+        renamed_atom14_gt_exists = torch.ones_like(gt_ligand_positions[..., 0],
+                        dtype=torch.float32,
+                        device=renamed_atom14_gt_exists.device)
+    else:
+        renamed_atom14_gt_exists = torch.cat([renamed_atom14_gt_exists,
+                                              torch.ones_like(gt_ligand_positions[..., 0],
+                                                              dtype=torch.float32,
+                                                              device=renamed_atom14_gt_exists.device)], dim=-1)
 
     fape = compute_fape(
         sidechain_frames,
@@ -297,46 +306,48 @@ def sidechain_loss(
     return fape
 
 
-def fape_loss(
+def fape_bb(
     out: Dict[str, torch.Tensor],
     batch: Dict[str, torch.Tensor],
     config: ml_collections.ConfigDict,
 ) -> torch.Tensor:
     traj = out["sm"]["frames"]
-    asym_id = batch.get("asym_id")
-    if asym_id is not None:
-        intra_chain_mask = (asym_id[..., None] == asym_id[..., None, :]).to(dtype=traj.dtype)
-        intra_chain_bb_loss = backbone_loss(
-            traj=traj,
-            pair_mask=intra_chain_mask,
-            **{**batch, **config.intra_chain_backbone},
-        )
-        interface_bb_loss = backbone_loss(
-            traj=traj,
-            pair_mask=1. - intra_chain_mask,
-            **{**batch, **config.interface_backbone},
-        )
-        weighted_bb_loss = (intra_chain_bb_loss * config.intra_chain_backbone.weight
-                            + interface_bb_loss * config.interface_backbone.weight)
-    else:
-        bb_loss = backbone_loss(
-            traj=traj,
-            **{**batch, **config.backbone},
-        )
-        weighted_bb_loss = bb_loss * config.backbone.weight
+    bb_loss = backbone_loss(
+        traj=traj,
+        **{**batch, **config},
+    )
+    loss = torch.mean(bb_loss)
+    return loss
 
+
+def fape_sidechain(
+    out: Dict[str, torch.Tensor],
+    batch: Dict[str, torch.Tensor],
+    config: ml_collections.ConfigDict,
+) -> torch.Tensor:
     sc_loss = sidechain_loss(
         out["sm"]["sidechain_frames"],
         out["sm"]["positions"],
         out["sm"]["ligand_atom_positions"],
-        **{**batch, **config.sidechain},
+        **{**batch, **config},
     )
+    loss = torch.mean(sc_loss)
+    return loss
 
-    loss = weighted_bb_loss + config.sidechain.weight * sc_loss
 
-    # Average over the batch dimension
-    loss = torch.mean(loss)
-
+def fape_interface(
+    out: Dict[str, torch.Tensor],
+    batch: Dict[str, torch.Tensor],
+    config: ml_collections.ConfigDict,
+) -> torch.Tensor:
+    sc_loss = sidechain_loss(
+        out["sm"]["sidechain_frames"],
+        out["sm"]["positions"],
+        out["sm"]["ligand_atom_positions"],
+        only_include_ligand_atoms=True,
+        **{**batch, **config},
+    )
+    loss = torch.mean(sc_loss)
     return loss
 
 
@@ -1768,10 +1779,20 @@ class AlphaFoldLoss(nn.Module):
                 logits=out["binding_site_logits"],
                 **{**batch, **self.config.binding_site},
             ),
-            "fape": lambda: fape_loss(
+            "fape_backbone": lambda: fape_bb(
                 out,
                 batch,
-                self.config.fape,
+                self.config.fape_backbone,
+            ),
+            "fape_sidechain": lambda: fape_sidechain(
+                out,
+                batch,
+                self.config.fape_sidechain,
+            ),
+            "fape_interface": lambda: fape_interface(
+                out,
+                batch,
+                self.config.fape_interface,
             ),
             "plddt_loss": lambda: lddt_loss(
                 logits=out["lddt_logits"],

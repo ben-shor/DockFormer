@@ -326,19 +326,20 @@ config = mlc.ConfigDict(
                 "no_bins": aux_affinity_bins,
                 "weight": 0.0,
             },
-            "fape": {
-                "backbone": {
-                    "clamp_distance": 10.0,
-                    "loss_unit_distance": 10.0,
-                    "weight": 0.5,
-                },
-                "sidechain": {
-                    "clamp_distance": 10.0,
-                    "length_scale": 10.0,
-                    "weight": 0.5,
-                },
-                "eps": 1e-4,
-                "weight": 1.0,
+            "fape_backbone": {
+                "clamp_distance": 10.0,
+                "loss_unit_distance": 10.0,
+                "weight": 0.5,
+            },
+            "fape_sidechain": {
+                "clamp_distance": 10.0,
+                "length_scale": 10.0,
+                "weight": 0.5,
+            },
+            "fape_interface": {
+                "clamp_distance": 10.0,
+                "length_scale": 10.0,
+                "weight": 0.0,
             },
             "plddt_loss": {
                 "min_resolution": 0.1,
