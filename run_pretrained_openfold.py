@@ -14,7 +14,7 @@
 # limitations under the License.
 import sys
 
-from env_consts import TEST_INPUT_DIR, TEST_OUTPUT_DIR, TRAIN_OUTPUT_DIR, CKPT_PATH
+from env_consts import TEST_INPUT_DIR, TEST_OUTPUT_DIR, CKPT_PATH
 import json
 import logging
 import numpy as np

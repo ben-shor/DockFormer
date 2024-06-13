@@ -1,4 +1,5 @@
 import os
+import sys
 
 import Bio.PDB
 import Bio.SeqUtils
@@ -78,14 +79,14 @@ def get_rmsd(gt_protein_path: str, gt_ligand_path: str, pred_protein_path: str, 
     return rmsd
 
 
-def main():
+def main(config_path):
     i = 0
     while os.path.exists(os.path.join(POSEBUSTERS_OUTPUT, f"output_{i}")):
         i += 1
     output_dir = os.path.join(POSEBUSTERS_OUTPUT, f"output_{i}")
     os.makedirs(output_dir, exist_ok=True)
 
-    run_on_folder(POSEBUSTERS_JSONS, output_dir, CKPT_PATH)
+    run_on_folder(POSEBUSTERS_JSONS, output_dir, config_path)
     # output_dir = os.path.join(POSEBUSTERS_OUTPUT, f"output_17")
 
     jobnames = ["_".join(filename.split("_")[:2]) for filename in os.listdir(os.path.join(output_dir, "predictions"))
@@ -116,4 +117,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    config_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "run_config.json")
+    main(config_path)
