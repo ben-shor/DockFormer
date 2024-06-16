@@ -178,7 +178,25 @@ class OpenFoldWrapper(pl.LightningModule):
         )
 
         metrics["drmsd_intra_ligand"] = drmsd_intra_ligand_score
-    
+
+        pred_contacts = torch.sigmoid(torch.tensor(outputs["inter_contact_logits"])).squeeze(-1)
+        pred_contacts = (pred_contacts > 0.5).float()
+        gt_contacts = batch["gt_inter_contacts"]
+
+        # Calculate True Positives, False Positives, and False Negatives
+        tp = torch.sum((gt_contacts == 1) & (pred_contacts == 1))
+        fp = torch.sum((gt_contacts == 0) & (pred_contacts == 1))
+        fn = torch.sum((gt_contacts == 1) & (pred_contacts == 0))
+
+        # Calculate Recall and Precision
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+
+        metrics["inter_contacts_recall"] = recall
+        metrics["inter_contacts_precision"] = precision
+
+        print("inter_contacts recall", recall, "precision", precision, tp, fp, fn, torch.ones_like(gt_contacts).sum())
+
         if(superimposition_metrics):
             superimposed_pred, alignment_rmsd, rots, transs = superimpose(
                 gt_coords_masked_ca, pred_coords_masked_ca, all_atom_mask_ca,

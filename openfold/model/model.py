@@ -372,6 +372,6 @@ class AlphaFold(nn.Module):
         affinity_1d = torch.sum(torch.softmax(outputs["affinity_1d_logits"], -1).cpu() * torch.linspace(0, 15, 32),
                                 dim=-1)
         gt_affinity = batch["affinity"].flatten()[0] if "affinity" in batch else None
-        print("Affinity summary", gt_affinity, affinity_2d[0], affinity_1d[0])
+        # print("Affinity summary", gt_affinity, affinity_2d[0], affinity_1d[0])
 
         return outputs
