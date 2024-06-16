@@ -638,6 +638,56 @@ def distogram_loss(
     return mean
 
 
+def inter_contact_loss(
+    logits: torch.Tensor,
+    gt_inter_contacts,
+    pos_class_weight: float = 200.0,
+    contact_distance: float = 5.0,
+    **kwargs,
+):
+    # total_size = pseudo_beta.shape[0] + predicted_ligand_positions.shape[0]
+    # non_inter_mask = torch.ones((m, m))
+    #
+    # print("shapes", pseudo_beta.shape, pseudo_beta_mask.shape, gt_ligand_positions.shape)
+    # protein_mask = logits.new_tensor(torch.zeros(pseudo_beta.shape[1] + gt_ligand_positions.shape[1]))
+    # print("shapes 2", pseudo_beta.shape, protein_mask.shape, pseudo_beta_mask.shape)
+    # protein_mask[:pseudo_beta.shape[0]] = pseudo_beta_mask
+    #
+    # ligand_mask = logits.new_tensor(torch.zeros(pseudo_beta.shape[1] + gt_ligand_positions.shape[1]))
+    # ligand_mask[pseudo_beta.shape[0]:] = 1
+    #
+    # square_mask = protein_mask[..., None] * ligand_mask[..., None, :]
+    #
+    # all_atom_positions = torch.cat([pseudo_beta, gt_ligand_positions], dim=-2)
+    #
+    # has_contact = (all_atom_positions[..., None, :] - all_atom_positions[..., None, :, :]) < contact_distance
+    # print("shapes", has_contact.shape, pseudo_beta.shape, gt_ligand_positions.shape, pseudo_beta_mask.shape)
+    #
+    # n_protein = pseudo_beta.shape[0]
+    # inter_has_contact = has_contact[:, n_protein:, :n_protein]
+    # inter_logits = logits[:, n_protein:, :n_protein]
+    #
+    # print("has_contact", has_contact.shape, inter_has_contact.shape, inter_logits.shape)
+    # print("full_mask", square_mask.shape)
+
+    # a_expanded = pseudo_beta.unsqueeze(2)  # Shape: (1, N_prot, 1, 3)
+    # b_expanded = gt_ligand_positions.unsqueeze(1)  # Shape: (1, 1, N_lig, 3)
+    #
+    # # Calculate pairwise distances
+    # distances = torch.sqrt(torch.sum((a_expanded - b_expanded) ** 2, dim=-1))
+    #
+    # has_contact = distances < contact_distance
+    # has_contact = has_contact.float()
+
+    inter_logits = logits.squeeze(-1)
+
+    # print("has_contact", gt_inter_contacts.shape, inter_logits.shape)
+
+    criterion = nn.BCEWithLogitsLoss(pos_weight=logits.new_tensor([pos_class_weight]))
+    loss = criterion(inter_logits, gt_inter_contacts)
+    return loss
+
+
 def affinity_loss(
     logits,
     affinity,
@@ -1778,6 +1828,10 @@ class AlphaFoldLoss(nn.Module):
             "binding_site": lambda: binding_site_loss(
                 logits=out["binding_site_logits"],
                 **{**batch, **self.config.binding_site},
+            ),
+            "inter_contact": lambda: inter_contact_loss(
+                logits=out["inter_contact_logits"],
+                **{**batch, **self.config.inter_contact},
             ),
             "fape_backbone": lambda: fape_bb(
                 out,

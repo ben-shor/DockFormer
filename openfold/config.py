@@ -273,6 +273,10 @@ config = mlc.ConfigDict(
                     "c_s": c_s,
                     "c_out": 1,
                 },
+                "inter_contact": {
+                    "c_z": c_z,
+                    "c_out": 1,
+                },
             },
             # A negative value indicates that no early stopping will occur, i.e.
             # the model will always run `max_recycling_iters` number of recycling
@@ -302,7 +306,7 @@ config = mlc.ConfigDict(
             },
             "positions_intra_distogram": {
                 "max_dist": 10.0,
-                "weight": 0.1,
+                "weight": 0.0,
             },
             "experimentally_resolved": {
                 "eps": eps,  # 1e-8,
@@ -313,6 +317,10 @@ config = mlc.ConfigDict(
             "binding_site": {
                 "weight": 0.0,
                 "pos_class_weight": 20.0,
+            },
+            "inter_contact": {
+                "weight": 0.0,
+                "pos_class_weight": 200.0,
             },
             "affinity2d": {
                 "min_bin": 0,

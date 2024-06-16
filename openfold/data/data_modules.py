@@ -146,6 +146,13 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
                 binding_site_mask[flatten_residue_index.index(i)] = True
             binding_site_mask = self._prepare_recycles(binding_site_mask, num_recycles)
 
+            a_expanded = gt_protein_feats["pseudo_beta"][..., -1].unsqueeze(1)  # Shape: (N_prot, 1, 3)
+            b_expanded = ligand_feats["gt_ligand_positions"][..., -1].unsqueeze(0)  # Shape: (1, N_lig, 3)
+            distances = torch.sqrt(torch.sum((a_expanded - b_expanded) ** 2, dim=-1))
+            inter_contact = (distances < 5.0).float()
+
+            inter_contact = self._prepare_recycles(inter_contact, num_recycles)
+
             feats = {
                 **feats,
                 **gt_protein_feats,  # most of the properties are used for loss (only seq and input_psuedo_beta are not)
@@ -154,6 +161,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
                 "resolution": resolution,
                 "affinity": affinity,
                 "binding_site_mask": binding_site_mask,
+                "gt_inter_contacts": inter_contact
             }
         else:
             pass
