@@ -192,8 +192,8 @@ class OpenFoldWrapper(pl.LightningModule):
         recall = tp / (tp + fn) if (tp + fn) > 0 else 0
         precision = tp / (tp + fp) if (tp + fp) > 0 else 0
 
-        metrics["inter_contacts_recall"] = recall
-        metrics["inter_contacts_precision"] = precision
+        metrics["inter_contacts_recall"] = gt_contacts.new_tensor(recall)
+        metrics["inter_contacts_precision"] = gt_contacts.new_tensor(precision)
 
         print("inter_contacts recall", recall, "precision", precision, tp, fp, fn, torch.ones_like(gt_contacts).sum())
 
