@@ -274,6 +274,7 @@ config = mlc.ConfigDict(
                     "c_out": 1,
                 },
                 "inter_contact": {
+                    "c_s": c_s,
                     "c_z": c_z,
                     "c_out": 1,
                 },

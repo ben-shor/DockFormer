@@ -179,7 +179,7 @@ class OpenFoldWrapper(pl.LightningModule):
 
         metrics["drmsd_intra_ligand"] = drmsd_intra_ligand_score
 
-        pred_contacts = torch.sigmoid(torch.tensor(outputs["inter_contact_logits"])).squeeze(-1)
+        pred_contacts = torch.sigmoid(outputs["inter_contact_logits"].clone().detach()).squeeze(-1)
         pred_contacts = (pred_contacts > 0.5).float()
         gt_contacts = batch["gt_inter_contacts"]
 
@@ -189,15 +189,15 @@ class OpenFoldWrapper(pl.LightningModule):
         fn = torch.sum((gt_contacts == 1) & (pred_contacts == 0))
 
         # Calculate Recall and Precision
-        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else tp.float()
+        precision = tp / (tp + fp) if (tp + fp) > 0 else tp.float()
 
-        metrics["inter_contacts_recall"] = gt_contacts.new_tensor(recall)
-        metrics["inter_contacts_precision"] = gt_contacts.new_tensor(precision)
+        metrics["inter_contacts_recall"] = recall.clone().detach()
+        metrics["inter_contacts_precision"] = precision.clone().detach()
 
         print("inter_contacts recall", recall, "precision", precision, tp, fp, fn, torch.ones_like(gt_contacts).sum())
 
-        if(superimposition_metrics):
+        if superimposition_metrics:
             superimposed_pred, alignment_rmsd, rots, transs = superimpose(
                 gt_coords_masked_ca, pred_coords_masked_ca, all_atom_mask_ca,
             )

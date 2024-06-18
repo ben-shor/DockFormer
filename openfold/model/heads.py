@@ -81,7 +81,8 @@ class AuxiliaryHeads(nn.Module):
 
         aux_out["binding_site_logits"] = self.binding_site(outputs["single"], outputs["start_ligand_ind"])
 
-        aux_out["inter_contact_logits"] = self.inter_contact(outputs["pair"], outputs["start_ligand_ind"])
+        aux_out["inter_contact_logits"] = self.inter_contact(outputs["single"], outputs["pair"],
+                                                             outputs["start_ligand_ind"])
 
         return aux_out
 
@@ -149,7 +150,7 @@ class BindingSitePredictor(nn.Module):
 
 
 class InterContactHead(nn.Module):
-    def __init__(self, c_z, c_out, **kwargs):
+    def __init__(self, c_s, c_z, c_out, **kwargs):
         """
         Args:
             c_z:
@@ -159,14 +160,21 @@ class InterContactHead(nn.Module):
         """
         super(InterContactHead, self).__init__()
 
+        self.c_s = c_s
         self.c_z = c_z
         self.c_out = c_out
 
-        self.linear = Linear(self.c_z, self.c_out, init="final")
+        self.linear = Linear(2 * self.c_s + self.c_z, self.c_out, init="final")
 
-    def forward(self, z, start_ligand_ind):  # [*, N, N, C_z]
+    def forward(self, s, z, start_ligand_ind):  # [*, N, N, C_z]
         # [*, N, N, no_bins]
-        logits = self.linear(z)
+        batch_size, n, s_dim = s.shape
+
+        s_i = s.unsqueeze(2).expand(batch_size, n, n, s_dim)
+        s_j = s.unsqueeze(1).expand(batch_size, n, n, s_dim)
+        joined = torch.cat((s_i, s_j, z), dim=-1)
+
+        logits = self.linear(joined)
         logits = logits + logits.transpose(-2, -3)
 
         inter_logits = logits[:, :start_ligand_ind, start_ligand_ind:]

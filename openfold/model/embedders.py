@@ -195,17 +195,17 @@ class StructureInputEmbedder(nn.Module):
         # Pair representation
         # protein pair embedding - Algorithm 3
         # [*, N_res, c_z]
-        tf_emb_i = self.protein_linear_tf_z_i(protein_target_feat)
-        tf_emb_j = self.protein_linear_tf_z_j(protein_target_feat)
+        prot_tf_emb_i = self.protein_linear_tf_z_i(protein_target_feat)
+        prot_tf_emb_j = self.protein_linear_tf_z_j(protein_target_feat)
 
         # [*, N_res, N_res, c_z]
-        protein_pair_emb = self.relpos(residue_index.type(tf_emb_i.dtype))
+        protein_pair_emb = self.relpos(residue_index.type(prot_tf_emb_i.dtype))
         protein_pair_emb = add(protein_pair_emb,
-            tf_emb_i[..., None, :],
+            prot_tf_emb_i[..., None, :],
             inplace=inplace_safe
         )
         protein_pair_emb = add(protein_pair_emb,
-            tf_emb_j[..., None, :, :],
+            prot_tf_emb_j[..., None, :, :],
             inplace=inplace_safe
         )
         protein_tf_m, protein_pair_emb = self._do_recycle(protein_tf_m, protein_pair_emb, input_protein_coords,
@@ -214,23 +214,29 @@ class StructureInputEmbedder(nn.Module):
         # ligand pair embedding
         ligand_pair_emb = self.ligand_linear_bond_z(ligand_bonds_feat)
 
-        tf_emb_i = self.ligand_linear_tf_z_i(ligand_target_feat)
-        tf_emb_j = self.ligand_linear_tf_z_j(ligand_target_feat)
+        lig_tf_emb_i = self.ligand_linear_tf_z_i(ligand_target_feat)
+        lig_tf_emb_j = self.ligand_linear_tf_z_j(ligand_target_feat)
 
         ligand_pair_emb = add(ligand_pair_emb,
-                              tf_emb_i[..., None, :],
+                              lig_tf_emb_i[..., None, :],
                               inplace=inplace_safe
                               )
         ligand_pair_emb = add(ligand_pair_emb,
-                              tf_emb_j[..., None, :, :],
+                              lig_tf_emb_j[..., None, :, :],
                               inplace=inplace_safe
                               )
+
+        # joint representation embedding
+        joint1 = prot_tf_emb_i.unsqueeze(2) + lig_tf_emb_j.unsqueeze(1)
+        joint2 = (prot_tf_emb_j.unsqueeze(2) + lig_tf_emb_i.unsqueeze(1)).transpose(1, 2)
 
         # Merge protein and ligand embeddings
         tf_m = torch.cat([protein_tf_m, ligand_tf_m], dim=-2)
         pair_emb = torch.zeros(N_batch, N_res + N_lig_atoms, N_res + N_lig_atoms, self.c_z, device=device)
         pair_emb[..., :N_res, :N_res, :] = protein_pair_emb
         pair_emb[..., N_res:, N_res:, :] = ligand_pair_emb
+        pair_emb[..., :N_res, N_res:, :] = joint1
+        pair_emb[..., N_res:, :N_res, :] = joint2
 
         return tf_m, pair_emb
 
