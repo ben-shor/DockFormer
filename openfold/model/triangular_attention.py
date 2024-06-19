@@ -151,14 +151,3 @@ class TriangleAttention(nn.Module):
             x = x.transpose(-2, -3)
 
         return x
-
-
-# Implements Algorithm 13
-TriangleAttentionStartingNode = TriangleAttention
-
-
-class TriangleAttentionEndingNode(TriangleAttention):
-    """
-    Implements Algorithm 14.
-    """
-    __init__ = partialmethod(TriangleAttention.__init__, starting=False)

@@ -67,12 +67,3 @@ class DropoutRowwise(Dropout):
     """
 
     __init__ = partialmethod(Dropout.__init__, batch_dim=-3)
-
-
-class DropoutColumnwise(Dropout):
-    """
-    Convenience class for columnwise dropout as described in subsection
-    1.11.6.
-    """
-
-    __init__ = partialmethod(Dropout.__init__, batch_dim=-2)

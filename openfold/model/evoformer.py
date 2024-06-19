@@ -21,18 +21,13 @@ from functools import partial
 from abc import ABC, abstractmethod
 
 from openfold.model.primitives import Linear, LayerNorm
-from openfold.model.dropout import DropoutRowwise, DropoutColumnwise
+from openfold.model.dropout import DropoutRowwise
 from openfold.model.msa import (
     MSARowAttentionWithPairBias,
-    MSAColumnAttention,
-    MSAColumnGlobalAttention,
 )
-from openfold.model.outer_product_mean import OuterProductMean
 from openfold.model.pair_transition import PairTransition
 from openfold.model.triangular_attention import (
     TriangleAttention,
-    TriangleAttentionStartingNode,
-    TriangleAttentionEndingNode,
 )
 from openfold.model.triangular_multiplicative_update import (
     TriangleMultiplicationOutgoing,
@@ -272,7 +267,6 @@ class MSABlock(nn.Module, ABC):
         c_m: int,
         c_z: int,
         c_hidden_msa_att: int,
-        c_hidden_opm: int,
         c_hidden_mul: int,
         c_hidden_pair_att: int,
         no_heads_msa: int,
@@ -280,14 +274,11 @@ class MSABlock(nn.Module, ABC):
         transition_n: int,
         msa_dropout: float,
         pair_dropout: float,
-        opm_first: bool,
         fuse_projection_weights: bool,
         inf: float,
         eps: float,
     ):
         super(MSABlock, self).__init__()
-
-        self.opm_first = opm_first
 
         self.msa_att_row = MSARowAttentionWithPairBias(
             c_m=c_m,
@@ -304,12 +295,6 @@ class MSABlock(nn.Module, ABC):
             n=transition_n,
         )
 
-        self.outer_product_mean = OuterProductMean(
-            c_m,
-            c_z,
-            c_hidden_opm,
-        )
-
         self.pair_stack = PairStack(
             c_z=c_z,
             c_hidden_mul=c_hidden_mul,
@@ -321,39 +306,6 @@ class MSABlock(nn.Module, ABC):
             inf=inf,
             eps=eps
         )
-
-    def _compute_opm(self,
-        input_tensors: Sequence[torch.Tensor],
-        msa_mask: torch.Tensor,
-        chunk_size: Optional[int] = None,
-        inplace_safe: bool = False,
-        _offload_inference: bool = False
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-
-        m, z = input_tensors
-
-        if (_offload_inference and inplace_safe):
-            # m: GPU, z: CPU
-            del m, z
-            assert (sys.getrefcount(input_tensors[1]) == 2)
-            input_tensors[1] = input_tensors[1].cpu()
-            m, z = input_tensors
-
-        opm = self.outer_product_mean(
-            m, mask=msa_mask, chunk_size=chunk_size, inplace_safe=inplace_safe
-        )
-
-        if (_offload_inference and inplace_safe):
-            # m: GPU, z: GPU
-            del m, z
-            assert (sys.getrefcount(input_tensors[0]) == 2)
-            input_tensors[1] = input_tensors[1].to(opm.device)
-            m, z = input_tensors
-
-        z = add(z, opm, inplace=inplace_safe)
-        del opm
-
-        return m, z
 
     @abstractmethod
     def forward(self,
@@ -379,7 +331,6 @@ class EvoformerBlock(MSABlock):
         c_m: int,
         c_z: int,
         c_hidden_msa_att: int,
-        c_hidden_opm: int,
         c_hidden_mul: int,
         c_hidden_pair_att: int,
         no_heads_msa: int,
@@ -387,8 +338,6 @@ class EvoformerBlock(MSABlock):
         transition_n: int,
         msa_dropout: float,
         pair_dropout: float,
-        no_column_attention: bool,
-        opm_first: bool,
         fuse_projection_weights: bool,
         inf: float,
         eps: float,
@@ -396,7 +345,6 @@ class EvoformerBlock(MSABlock):
         super(EvoformerBlock, self).__init__(c_m=c_m,
                                              c_z=c_z,
                                              c_hidden_msa_att=c_hidden_msa_att,
-                                             c_hidden_opm=c_hidden_opm,
                                              c_hidden_mul=c_hidden_mul,
                                              c_hidden_pair_att=c_hidden_pair_att,
                                              no_heads_msa=no_heads_msa,
@@ -404,21 +352,9 @@ class EvoformerBlock(MSABlock):
                                              transition_n=transition_n,
                                              msa_dropout=msa_dropout,
                                              pair_dropout=pair_dropout,
-                                             opm_first=opm_first,
                                              fuse_projection_weights=fuse_projection_weights,
                                              inf=inf,
                                              eps=eps)
-
-        # Specifically, seqemb mode does not use column attention
-        self.no_column_attention = no_column_attention
-
-        if not self.no_column_attention:
-            self.msa_att_col = MSAColumnAttention(
-                c_m,
-                c_hidden_msa_att,
-                no_heads_msa,
-                inf=inf,
-            )
 
     def forward(self,
         m: Optional[torch.Tensor],
@@ -449,14 +385,16 @@ class EvoformerBlock(MSABlock):
 
         m, z = input_tensors
 
-        if self.opm_first:
-            del m, z
-
-            m, z = self._compute_opm(input_tensors=input_tensors,
-                                     msa_mask=msa_mask,
-                                     chunk_size=chunk_size,
-                                     inplace_safe=inplace_safe,
-                                     _offload_inference=_offload_inference)
+        z = self.pair_stack(
+            z=z,
+            pair_mask=pair_mask,
+            chunk_size=chunk_size,
+            use_deepspeed_evo_attention=use_deepspeed_evo_attention,
+            use_lma=use_lma,
+            inplace_safe=inplace_safe,
+            _mask_trans=_mask_trans,
+            _attn_chunk_size=_attn_chunk_size
+        )
 
         m = add(m,
                 self.msa_dropout_layer(
@@ -473,28 +411,6 @@ class EvoformerBlock(MSABlock):
                 inplace=inplace_safe,
                 )
 
-        if (_offload_inference and inplace_safe):
-            # m: GPU, z: CPU
-            del m, z
-            assert (sys.getrefcount(input_tensors[1]) == 2)
-            input_tensors[1] = input_tensors[1].cpu()
-            torch.cuda.empty_cache()
-            m, z = input_tensors
-
-        # Specifically, column attention is not used in seqemb mode.
-        if not self.no_column_attention:
-            m = add(m,
-                    self.msa_att_col(
-                        m,
-                        mask=msa_mask,
-                        chunk_size=chunk_size,
-                        use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                        use_lma=use_lma,
-                        use_flash=use_flash,
-                    ),
-                    inplace=inplace_safe,
-                    )
-
         m = add(
             m,
             self.msa_transition(
@@ -502,52 +418,6 @@ class EvoformerBlock(MSABlock):
             ),
             inplace=inplace_safe,
         )
-
-        if not self.opm_first:
-            if (not inplace_safe):
-                input_tensors = [m, z]
-
-            del m, z
-
-            m, z = self._compute_opm(input_tensors=input_tensors,
-                                     msa_mask=msa_mask,
-                                     chunk_size=chunk_size,
-                                     inplace_safe=inplace_safe,
-                                     _offload_inference=_offload_inference)
-
-        if (_offload_inference and inplace_safe):
-            # m: CPU, z: GPU
-            del m, z
-            assert (sys.getrefcount(input_tensors[0]) == 2)
-            device = input_tensors[0].device
-            input_tensors[0] = input_tensors[0].cpu()
-            input_tensors[1] = input_tensors[1].to(device)
-            m, z = input_tensors
-
-        if (not inplace_safe):
-            input_tensors = [m, z]
-
-        del m, z
-
-        z = self.pair_stack(
-            z=input_tensors[1],
-            pair_mask=pair_mask,
-            chunk_size=chunk_size,
-            use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-            use_lma=use_lma,
-            inplace_safe=inplace_safe,
-            _mask_trans=_mask_trans,
-            _attn_chunk_size=_attn_chunk_size
-        )
-
-        if (_offload_inference and inplace_safe):
-            # m: GPU, z: GPU
-            device = z.device
-            assert (sys.getrefcount(input_tensors[0]) == 2)
-            input_tensors[0] = input_tensors[0].to(device)
-            m, _ = input_tensors
-        else:
-            m = input_tensors[0]
 
         return m, z
 
@@ -564,7 +434,6 @@ class EvoformerStack(nn.Module):
         c_m: int,
         c_z: int,
         c_hidden_msa_att: int,
-        c_hidden_opm: int,
         c_hidden_mul: int,
         c_hidden_pair_att: int,
         c_s: int,
@@ -574,8 +443,6 @@ class EvoformerStack(nn.Module):
         transition_n: int,
         msa_dropout: float,
         pair_dropout: float,
-        no_column_attention: bool,
-        opm_first: bool,
         fuse_projection_weights: bool,
         blocks_per_ckpt: int,
         inf: float,
@@ -592,8 +459,6 @@ class EvoformerStack(nn.Module):
                 Pair channel dimension
             c_hidden_msa_att:
                 Hidden dimension in MSA attention
-            c_hidden_opm:
-                Hidden dimension in outer product mean module
             c_hidden_mul:
                 Hidden dimension in multiplicative updates
             c_hidden_pair_att:
@@ -613,13 +478,6 @@ class EvoformerStack(nn.Module):
                 Dropout rate for MSA activations
             pair_dropout:
                 Dropout used for pair activations
-            no_column_attention:
-                When True, doesn't use column attention. Required for running
-                sequence embedding mode
-            opm_first:
-                When True, Outer Product Mean is performed at the beginning of
-                the Evoformer block instead of after the MSA Stack.
-                Used in Multimer pipeline.
             fuse_projection_weights:
                 When True, uses FusedTriangleMultiplicativeUpdate variant in
                 the Pair Stack. Used in Multimer pipeline.
@@ -643,7 +501,6 @@ class EvoformerStack(nn.Module):
                 c_m=c_m,
                 c_z=c_z,
                 c_hidden_msa_att=c_hidden_msa_att,
-                c_hidden_opm=c_hidden_opm,
                 c_hidden_mul=c_hidden_mul,
                 c_hidden_pair_att=c_hidden_pair_att,
                 no_heads_msa=no_heads_msa,
@@ -651,8 +508,6 @@ class EvoformerStack(nn.Module):
                 transition_n=transition_n,
                 msa_dropout=msa_dropout,
                 pair_dropout=pair_dropout,
-                no_column_attention=no_column_attention,
-                opm_first=opm_first,
                 fuse_projection_weights=fuse_projection_weights,
                 inf=inf,
                 eps=eps,

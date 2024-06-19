@@ -17,19 +17,12 @@ from typing import Optional, Sequence, Tuple
 import torch
 import torch.nn as nn
 
-from openfold.model.dropout import (
-    DropoutRowwise,
-    DropoutColumnwise,
-)
 from openfold.model.evoformer import (
     EvoformerBlock,
     EvoformerStack,
 )
-from openfold.model.outer_product_mean import OuterProductMean
 from openfold.model.msa import (
     MSARowAttentionWithPairBias, 
-    MSAColumnAttention,
-    MSAColumnGlobalAttention,
 )
 from openfold.model.primitives import Attention, GlobalAttention
 
@@ -102,26 +95,6 @@ def _trace_module(module, batch_dims=None):
                     (*batch_dims, n_seq, n_res)
                 ), # mask
             ),
-        }
-    elif(isinstance(module, MSAColumnAttention)):
-        inputs = {
-            "forward": (
-                msa(module.c_in), # m
-                torch.randint(
-                    0, 2, 
-                    (*batch_dims, n_seq, n_res)
-                ), # mask
-            ),
-        }
-    elif(isinstance(module, OuterProductMean)):
-        inputs = {
-            "forward": (
-                msa(module.c_m),
-                torch.randint(
-                    0, 2,
-                    (*batch_dims, n_seq, n_res)
-                )
-            )
         }
     else:
         raise TypeError(
