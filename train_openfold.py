@@ -337,10 +337,13 @@ def train(override_config_path: str):
 
     # Initialize WandbLogger and save run_id
     local_rank = int(os.getenv('LOCAL_RANK', '0'))
+    print("ranks", os.getenv('LOCAL_RANK', 'd0'), os.getenv('local_rank', 'd0'), os.getenv('GLOBAL_RANK', 'd0'),
+          os.getenv('global_rank', 'd0'))
     if local_rank == 0 and not os.path.exists(wandb_run_id_path):
         wandb_logger = WandbLogger(project=wandb_project_name, save_dir=output_dir)
         with open(wandb_run_id_path, 'w') as f:
             f.write(wandb_logger.experiment.id)
+        wandb_logger.experiment.config.update(run_config, allow_val_change=True)
     else:
         # Necessary for multi-node training https://github.com/rstrudel/segmenter/issues/22
         while not os.path.exists(wandb_run_id_path):
@@ -350,7 +353,6 @@ def train(override_config_path: str):
             run_id = f.read().strip()
         wandb_logger = WandbLogger(project=wandb_project_name, save_dir=output_dir, resume='must', id=run_id)
     loggers.append(wandb_logger)
-    wandb_logger.experiment.config.update(run_config, allow_val_change=True)
 
     strategy_params = {"strategy": "auto"}
     if run_config.get("multi_node", False):
