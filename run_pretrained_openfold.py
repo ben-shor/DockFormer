@@ -105,8 +105,11 @@ def run_on_folder(input_dir: str, output_dir: str, run_config_path: str):
                              dim=-1).item()
         print("Affinity: ", affinity)
 
-        binding_site = torch.sigmoid(torch.tensor(out["binding_site_logits"])) * 100
-        binding_site = binding_site[:processed_feature_dict["aatype"].shape[1]].flatten()
+        # binding_site = torch.sigmoid(torch.tensor(out["binding_site_logits"])) * 100
+        # binding_site = binding_site[:processed_feature_dict["aatype"].shape[1]].flatten()
+
+        predicted_contacts = torch.sigmoid(torch.tensor(out["inter_contact_logits"])) * 100
+        binding_site = torch.max(predicted_contacts, dim=2).values.flatten()
 
         unrelaxed_file_suffix = "_unrelaxed.pdb"
         unrelaxed_output_path = os.path.join(output_directory, f'{output_name}{unrelaxed_file_suffix}')

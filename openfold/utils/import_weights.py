@@ -21,7 +21,6 @@ def convert_deprecated_v1_keys(state_dict):
 
     replacements = {
         'core.msa_transition': 'msa_transition',
-        'core.outer_product_mean': 'outer_product_mean',
         'core.tri_': 'pair_stack.tri_',
         'core.pair_transition': 'pair_stack.pair_transition',
         'ipa.linear_q_points': 'ipa.linear_q_points.linear',
