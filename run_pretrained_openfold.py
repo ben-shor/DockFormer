@@ -41,7 +41,7 @@ if (
 torch.set_grad_enabled(False)
 
 from openfold.config import model_config
-from openfold.utils.script_utils import (load_models_from_command_line, run_model, relax_protein, save_output_structure,
+from openfold.utils.script_utils import (load_models_from_command_line, run_model, save_output_structure,
                                          get_latest_checkpoint)
 from openfold.utils.tensor_utils import tensor_tree_map
 
@@ -59,9 +59,8 @@ def override_config(base_config, overriding_config):
     return base_config
 
 
-def run_on_folder(input_dir: str, output_dir: str, run_config_path: str):
+def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_relaxation=True):
     config_preset = "initial_training"
-    skip_relaxation = True
     save_outputs = False
     device_name = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -111,9 +110,6 @@ def run_on_folder(input_dir: str, output_dir: str, run_config_path: str):
         predicted_contacts = torch.sigmoid(torch.tensor(out["inter_contact_logits"])) * 100
         binding_site = torch.max(predicted_contacts, dim=2).values.flatten()
 
-        unrelaxed_file_suffix = "_unrelaxed.pdb"
-        unrelaxed_output_path = os.path.join(output_directory, f'{output_name}{unrelaxed_file_suffix}')
-
         protein_output_path = os.path.join(output_directory, f'{output_name}_protein.pdb')
         protein_binding_output_path = os.path.join(output_directory, f'{output_name}_protein_affinity.pdb')
         ligand_output_path = os.path.join(output_directory, f'{output_name}_ligand.sdf')
@@ -136,13 +132,19 @@ def run_on_folder(input_dir: str, output_dir: str, run_config_path: str):
             binding_site_probs=binding_site
         )
 
-        logger.info(f"Output written to {unrelaxed_output_path}...")
+        logger.info(f"Output written to {protein_output_path}...")
 
         if not skip_relaxation:
             # Relax the prediction.
-            logger.info(f"Running relaxation on {unrelaxed_output_path}...")
-            # bshor TODO: fix relaxation, currently expects a protein object, should expect a PDB file
-            relax_protein(config, device_name, unrelaxed_protein, output_directory, output_name)
+            logger.info(f"Running relaxation on {protein_output_path}...")
+            from openfold.utils.relax import relax_complex
+            try:
+                relax_complex(protein_output_path,
+                              ligand_output_path,
+                              os.path.join(output_directory, f'{output_name}_protein_relaxed.pdb'),
+                              os.path.join(output_directory, f'{output_name}_ligand_relaxed.sdf'))
+            except Exception as e:
+                logger.error(f"Failed to relax {protein_output_path} due to {e}...")
 
         if save_outputs:
             output_dict_path = os.path.join(
