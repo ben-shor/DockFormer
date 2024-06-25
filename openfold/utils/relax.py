@@ -172,8 +172,8 @@ def generate_best_conformer(pred_coords, ligand_smiles, max_confs=100):
         for j in range(i+1, len(bounds_keys)):
             key_j = bounds_keys[j]
             try:
-                bounds[bounds_mapping[key_i], bounds_mapping[key_j]]=pred_dmat[i,j]
-                bounds[bounds_mapping[key_j], bounds_mapping[key_i]]=pred_dmat[j,i]
+                bounds[bounds_mapping[key_i], bounds_mapping[key_j]] = pred_dmat[i, j]
+                bounds[bounds_mapping[key_j], bounds_mapping[key_i]] = pred_dmat[j, i]
             except:
                 continue
     # Now generate conformers using the bounds

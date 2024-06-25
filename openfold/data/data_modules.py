@@ -102,8 +102,8 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
 
         if self.mode == 'train' or self.mode == 'eval':
             # should always use the mol2 in train, as sometimes the smiles has less atoms than the mol2 (ex: 1mnr)
-            gt_mol2_path = os.path.join(parent_dir, input_data["gt_mol2"])
-            ligand_feats = self.data_pipeline.process_mol2(mol2_path=gt_mol2_path)
+            gt_sdf_path = os.path.join(parent_dir, input_data["gt_sdf"])
+            ligand_feats = self.data_pipeline.process_sdf(sdf_path=gt_sdf_path)
         else:
             ligand_feats = self.data_pipeline.process_smiles(smiles=input_data["input_smiles"])
 

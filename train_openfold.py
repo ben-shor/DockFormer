@@ -337,9 +337,10 @@ def train(override_config_path: str):
 
     # Initialize WandbLogger and save run_id
     local_rank = int(os.getenv('LOCAL_RANK', os.getenv("SLURM_PROCID", '0')))
+    global_rank = int(os.getenv('GLOBAL_RANK', os.getenv("SLURM_LOCALID", '0')))
     print("ranks", os.getenv('LOCAL_RANK', 'd0'), os.getenv('local_rank', 'd0'), os.getenv('GLOBAL_RANK', 'd0'),
           os.getenv('global_rank', 'd0'), os.getenv("SLURM_PROCID", 'd0'), os.getenv('SLURM_LOCALID', 'd0'), flush=True)
-    if local_rank == 0 and not os.path.exists(wandb_run_id_path):
+    if local_rank == 0 and global_rank == 0 and not os.path.exists(wandb_run_id_path):
         wandb_logger = WandbLogger(project=wandb_project_name, save_dir=output_dir)
         with open(wandb_run_id_path, 'w') as f:
             f.write(wandb_logger.experiment.id)

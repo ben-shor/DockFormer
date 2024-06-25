@@ -207,4 +207,19 @@ class DataPipeline:
             "gt_ligand_positions": positions.float()
         }
 
+    def process_sdf(self, sdf_path: str) -> FeatureTensorDict:
+        """
+            Assembles features for a ligand in a mol2 file.
+        """
+        ligand = Chem.MolFromMolFile(sdf_path)
+        assert ligand is not None, f"Failed to parse ligand from {sdf_path}"
+
+        conf = ligand.GetConformer()
+        positions = torch.tensor(conf.GetPositions())
+
+        return {
+            **self._process_rdkit_ligand(ligand),
+            "gt_ligand_positions": positions.float()
+        }
+
 
