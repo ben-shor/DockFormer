@@ -141,6 +141,7 @@ class AlphaFold(nn.Module):
             feats["protein_target_feat"],
             feats["residue_index"],
             feats["input_pseudo_beta"],
+            feats["ref_ligand_positions"],
             feats["ligand_target_feat"],
             feats["ligand_bonds_feat"],
             inplace_safe=inplace_safe,

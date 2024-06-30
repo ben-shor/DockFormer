@@ -38,9 +38,12 @@ class StructureInputEmbedder(nn.Module):
         c_z: int,
         c_m: int,
         relpos_k: int,
-        min_bin: float,
-        max_bin: float,
-        no_bins: int,
+        prot_min_bin: float,
+        prot_max_bin: float,
+        prot_no_bins: int,
+        lig_min_bin: float,
+        lig_max_bin: float,
+        lig_no_bins: int,
         inf: float = 1e8,
         **kwargs,
     ):
@@ -78,12 +81,16 @@ class StructureInputEmbedder(nn.Module):
         self.linear_relpos = Linear(self.no_bins, c_z)
 
         # Recycling stuff
-        self.min_bin = min_bin
-        self.max_bin = max_bin
-        self.no_bins = no_bins
+        self.prot_min_bin = prot_min_bin
+        self.prot_max_bin = prot_max_bin
+        self.prot_no_bins = prot_no_bins
+        self.lig_min_bin = lig_min_bin
+        self.lig_max_bin = lig_max_bin
+        self.lig_no_bins = lig_no_bins
         self.inf = inf
 
-        self.recycling_linear = Linear(self.no_bins, self.c_z)
+        self.prot_recycling_linear = Linear(self.prot_no_bins, self.c_z)
+        self.lig_recycling_linear = Linear(self.lig_no_bins, self.c_z)
         self.layer_norm_m = LayerNorm(self.c_m)
         self.layer_norm_z = LayerNorm(self.c_z)
 
@@ -109,7 +116,7 @@ class StructureInputEmbedder(nn.Module):
         d = d.to(ri.dtype)
         return self.linear_relpos(d)
 
-    def _do_recycle(self, m, z, x, inplace_safe=False):
+    def _do_recycle(self, m, z, x, min_bin, max_bin, no_bins, recycling_linear, inplace_safe=False):
         m_update = self.layer_norm_m(m)
         if (inplace_safe):
             m.copy_(m_update)
@@ -123,9 +130,9 @@ class StructureInputEmbedder(nn.Module):
 
         # This squared method might become problematic in FP16 mode.
         bins = torch.linspace(
-            self.min_bin,
-            self.max_bin,
-            self.no_bins,
+            min_bin,
+            max_bin,
+            no_bins,
             dtype=x.dtype,
             device=x.device,
             requires_grad=False,
@@ -140,7 +147,7 @@ class StructureInputEmbedder(nn.Module):
         d = ((d > squared_bins) * (d < upper)).type(x.dtype)
 
         # [*, N, N, C_z]
-        d = self.recycling_linear(d)
+        d = recycling_linear(d)
         z_update = add(z_update, d, inplace_safe)
 
         return m_update, z_update
@@ -150,6 +157,7 @@ class StructureInputEmbedder(nn.Module):
         protein_target_feat: torch.Tensor,
         residue_index: torch.Tensor,
         input_protein_coords: torch.Tensor,
+        ref_ligand_positions: torch.Tensor,
         ligand_target_feat: torch.Tensor,
         ligand_bonds_feat: torch.Tensor,
         inplace_safe: bool = False,
@@ -209,7 +217,8 @@ class StructureInputEmbedder(nn.Module):
             inplace=inplace_safe
         )
         protein_tf_m, protein_pair_emb = self._do_recycle(protein_tf_m, protein_pair_emb, input_protein_coords,
-                                                          inplace_safe)
+                                                          self.prot_min_bin, self.prot_max_bin, self.prot_no_bins,
+                                                          self.prot_recycling_linear, inplace_safe)
 
         # ligand pair embedding
         ligand_pair_emb = self.ligand_linear_bond_z(ligand_bonds_feat)
@@ -225,6 +234,10 @@ class StructureInputEmbedder(nn.Module):
                               lig_tf_emb_j[..., None, :, :],
                               inplace=inplace_safe
                               )
+
+        ligand_tf_m, ligand_pair_emb = self._do_recycle(ligand_tf_m, ligand_pair_emb, ref_ligand_positions,
+                                                        self.lig_min_bin, self.lig_max_bin, self.lig_no_bins,
+                                                        self.lig_recycling_linear, inplace_safe)
 
         # joint representation embedding
         joint1 = prot_tf_emb_i.unsqueeze(2) + lig_tf_emb_j.unsqueeze(1)

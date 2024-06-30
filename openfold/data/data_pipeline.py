@@ -219,7 +219,7 @@ class DataPipeline:
 
         return {
             **self._process_rdkit_ligand(ligand),
-            "gt_ligand_positions": positions.float()
+            "ligand_positions": positions.float()
         }
 
 

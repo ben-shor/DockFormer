@@ -101,11 +101,20 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         input_protein_feats = self.feature_pipeline.process_features(input_protein_structure, self.mode)
 
         if self.mode == 'train' or self.mode == 'eval':
-            # should always use the mol2 in train, as sometimes the smiles has less atoms than the mol2 (ex: 1mnr)
+            # should always use the structure in train, as sometimes the smiles has less atoms than the mol2 (ex: 1mnr),
+            # and also it makes sure the atom numbering stays correct
             gt_sdf_path = os.path.join(parent_dir, input_data["gt_sdf"])
             ligand_feats = self.data_pipeline.process_sdf(sdf_path=gt_sdf_path)
+
+            print("loading", input_data["pdb_id"])
         else:
             ligand_feats = self.data_pipeline.process_smiles(smiles=input_data["input_smiles"])
+
+        # load ref sdf
+        ref_sdf_path = os.path.join(parent_dir, input_data["ref_sdf"])
+        ref_ligand_feats = self.data_pipeline.process_sdf(sdf_path=ref_sdf_path)
+        ref_ligand_positions = ref_ligand_feats["ligand_positions"]
+        ref_ligand_positions = self._prepare_recycles(ref_ligand_positions, num_recycles)
 
         # apply recycling to ligand features
         for k, v in ligand_feats.items():
@@ -128,6 +137,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
             "ligand_chirality": ligand_feats["ligand_chirality"],
             "ligand_charge": ligand_feats["ligand_charge"],
             "ligand_bonds": ligand_feats["ligand_bonds"],
+            "ref_ligand_positions": ref_ligand_positions,
         }
 
         if self.mode == 'train' or self.mode == 'eval':
@@ -140,24 +150,25 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
             resolution = self._prepare_recycles(torch.tensor([input_data["resolution"]], dtype=torch.float32),
                                                 num_recycles)
 
+            # prepare binding site mask
             flatten_residue_index = input_protein_feats["residue_index"][..., 0].flatten().tolist()
             binding_site_mask = torch.zeros(n_res, dtype=torch.float32)
             for i in input_data["pocket_res_ids"]:
                 binding_site_mask[flatten_residue_index.index(i)] = True
             binding_site_mask = self._prepare_recycles(binding_site_mask, num_recycles)
 
+            # prepare inter_contacts
             a_expanded = gt_protein_feats["pseudo_beta"][..., -1].unsqueeze(1)  # Shape: (N_prot, 1, 3)
-            b_expanded = ligand_feats["gt_ligand_positions"][..., -1].unsqueeze(0)  # Shape: (1, N_lig, 3)
+            b_expanded = ligand_feats["ligand_positions"][..., -1].unsqueeze(0)  # Shape: (1, N_lig, 3)
             distances = torch.sqrt(torch.sum((a_expanded - b_expanded) ** 2, dim=-1))
             inter_contact = (distances < 5.0).float()
-
             inter_contact = self._prepare_recycles(inter_contact, num_recycles)
 
             feats = {
                 **feats,
                 **gt_protein_feats,  # most of the properties are used for loss (only seq and input_psuedo_beta are not)
                 "input_pseudo_beta": input_protein_feats["pseudo_beta"],
-                "gt_ligand_positions": ligand_feats["gt_ligand_positions"],
+                "gt_ligand_positions": ligand_feats["ligand_positions"],
                 "resolution": resolution,
                 "affinity": affinity,
                 "binding_site_mask": binding_site_mask,
