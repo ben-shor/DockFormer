@@ -1,4 +1,5 @@
 import copy
+import time
 from functools import partial
 import json
 import logging
@@ -90,8 +91,12 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         return feat.unsqueeze(-1).repeat(*([1] * len(feat.shape)), num_recycles)
 
     def __getitem__(self, idx):
+        start_load_time = time.time()
+
         input_path = os.path.join(self.data_dir, self._all_input_files[idx])
         input_data = json.load(open(input_path, "r"))
+        if self.mode == "train" or self.mode == "eval":
+            print("loading", input_data["pdb_id"], end=" ")
 
         num_recycles = self.config.common.max_recycling_iters + 1
 
@@ -100,28 +105,14 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         input_protein_structure = self.data_pipeline.process_pdb(pdb_path=input_pdb_path)
         input_protein_feats = self.feature_pipeline.process_features(input_protein_structure, self.mode)
 
-        if self.mode == 'train' or self.mode == 'eval':
-            # should always use the structure in train, as sometimes the smiles has less atoms than the mol2 (ex: 1mnr),
-            # and also it makes sure the atom numbering stays correct
-            gt_sdf_path = os.path.join(parent_dir, input_data["gt_sdf"])
-            ligand_feats = self.data_pipeline.process_sdf(sdf_path=gt_sdf_path)
-
-            print("loading", input_data["pdb_id"])
-        else:
-            ligand_feats = self.data_pipeline.process_smiles(smiles=input_data["input_smiles"])
-
         # load ref sdf
         ref_sdf_path = os.path.join(parent_dir, input_data["ref_sdf"])
         ref_ligand_feats = self.data_pipeline.process_sdf(sdf_path=ref_sdf_path)
-        ref_ligand_positions = ref_ligand_feats["ligand_positions"]
-        ref_ligand_positions = self._prepare_recycles(ref_ligand_positions, num_recycles)
-
-        # apply recycling to ligand features
-        for k, v in ligand_feats.items():
-            ligand_feats[k] = self._prepare_recycles(v, num_recycles)
+        for k, v in ref_ligand_feats.items():
+            ref_ligand_feats[k] = self._prepare_recycles(v, num_recycles)
 
         n_res = input_protein_feats["protein_target_feat"].shape[0]
-        n_lig = ligand_feats["ligand_target_feat"].shape[0]
+        n_lig = ref_ligand_feats["ligand_target_feat"].shape[0]
 
         protein_lig_seq_mask = torch.cat([input_protein_feats["seq_mask"], torch.ones((n_lig, num_recycles))], dim=0)
         protein_lig_msa_mask = torch.cat([input_protein_feats["msa_mask"], torch.ones((n_lig, num_recycles))], dim=0)
@@ -131,13 +122,13 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
             "protein_lig_seq_mask": protein_lig_seq_mask,
             "protein_lig_msa_mask": protein_lig_msa_mask,
             "input_pseudo_beta": input_protein_feats["pseudo_beta"],
-            "ligand_target_feat": ligand_feats["ligand_target_feat"],
-            "ligand_bonds_feat": ligand_feats["ligand_bonds_feat"],
-            "ligand_atype": ligand_feats["ligand_atype"],
-            "ligand_chirality": ligand_feats["ligand_chirality"],
-            "ligand_charge": ligand_feats["ligand_charge"],
-            "ligand_bonds": ligand_feats["ligand_bonds"],
-            "ref_ligand_positions": ref_ligand_positions,
+            "ligand_target_feat": ref_ligand_feats["ligand_target_feat"],
+            "ligand_bonds_feat": ref_ligand_feats["ligand_bonds_feat"],
+            "ligand_atype": ref_ligand_feats["ligand_atype"],
+            "ligand_chirality": ref_ligand_feats["ligand_chirality"],
+            "ligand_charge": ref_ligand_feats["ligand_charge"],
+            "ligand_bonds": ref_ligand_feats["ligand_bonds"],
+            "ref_ligand_positions": ref_ligand_feats["ligand_positions"],
         }
 
         if self.mode == 'train' or self.mode == 'eval':
@@ -145,6 +136,12 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
 
             gt_protein_structure = self.data_pipeline.process_pdb(pdb_path=gt_pdb_path)
             gt_protein_feats = self.feature_pipeline.process_features(gt_protein_structure, self.mode)
+
+            gt_ligand_positions = self.data_pipeline.get_matching_positions(
+                os.path.join(parent_dir, input_data["ref_sdf"]),
+                os.path.join(parent_dir, input_data["gt_sdf"]),
+            )
+            gt_ligand_positions = self._prepare_recycles(gt_ligand_positions, num_recycles)
 
             affinity = self._prepare_recycles(torch.tensor([input_data["affinity"]], dtype=torch.float32), num_recycles)
             resolution = self._prepare_recycles(torch.tensor([input_data["resolution"]], dtype=torch.float32),
@@ -159,7 +156,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
 
             # prepare inter_contacts
             a_expanded = gt_protein_feats["pseudo_beta"][..., -1].unsqueeze(1)  # Shape: (N_prot, 1, 3)
-            b_expanded = ligand_feats["ligand_positions"][..., -1].unsqueeze(0)  # Shape: (1, N_lig, 3)
+            b_expanded = gt_ligand_positions[..., -1].unsqueeze(0)  # Shape: (1, N_lig, 3)
             distances = torch.sqrt(torch.sum((a_expanded - b_expanded) ** 2, dim=-1))
             inter_contact = (distances < 5.0).float()
             inter_contact = self._prepare_recycles(inter_contact, num_recycles)
@@ -168,7 +165,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
                 **feats,
                 **gt_protein_feats,  # most of the properties are used for loss (only seq and input_psuedo_beta are not)
                 "input_pseudo_beta": input_protein_feats["pseudo_beta"],
-                "gt_ligand_positions": ligand_feats["ligand_positions"],
+                "gt_ligand_positions": gt_ligand_positions,
                 "resolution": resolution,
                 "affinity": affinity,
                 "binding_site_mask": binding_site_mask,
@@ -181,6 +178,8 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
             [idx for _ in range(feats["aatype"].shape[-1] + feats["ligand_target_feat"].shape[-1])],
             dtype=torch.int64,
             device=feats["aatype"].device)
+
+        print("load time", round(time.time() - start_load_time, 4))
 
         return feats
 

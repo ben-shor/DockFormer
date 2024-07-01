@@ -214,12 +214,31 @@ class DataPipeline:
         ligand = Chem.MolFromMolFile(sdf_path)
         assert ligand is not None, f"Failed to parse ligand from {sdf_path}"
 
-        conf = ligand.GetConformer()
+        conf = ligand.GetConformer(0)
         positions = torch.tensor(conf.GetPositions())
 
         return {
             **self._process_rdkit_ligand(ligand),
             "ligand_positions": positions.float()
         }
+
+    def get_matching_positions(self, ref_ligand_path: str, gt_ligand_path: str):
+        ref_ligand = Chem.MolFromMolFile(ref_ligand_path)
+        gt_ligand = Chem.MolFromMolFile(gt_ligand_path)
+
+        gt_original_positions = gt_ligand.GetConformer(0).GetPositions()
+
+        gt_positions = [gt_original_positions[idx] for idx in gt_ligand.GetSubstructMatch(ref_ligand)]
+
+        # ref_positions = ref_ligand.GetConformer(0).GetPositions()
+        # for i in range(len(ref_positions)):
+        #     for j in range(i + 1, len(ref_positions)):
+        #         dist_ref = np.linalg.norm(ref_positions[i] - ref_positions[j])
+        #         dist_gt = np.linalg.norm(gt_positions[i] - gt_positions[j])
+        #         dist_gt = np.linalg.norm(gt_original_positions[i] - gt_original_positions[j])
+        #         if abs(dist_ref - dist_gt) > 1.0:
+        #             print(f"Distance mismatch {i} {j} {dist_ref} {dist_gt}")
+
+        return torch.tensor(gt_positions).float()
 
 
