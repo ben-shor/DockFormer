@@ -1,5 +1,6 @@
 import copy
 import time
+from collections import Counter
 from functools import partial
 import json
 import logging
@@ -333,6 +334,8 @@ class OpenFoldDataset(torch.utils.data.Dataset):
         return self.epoch_len
 
     def reroll(self):
+        # TODO bshor: I have removed support for filters (currently done in preprocess) and to weighting clusters
+        # now it is much faster, because it doesn't call looped_samples
         dataset_choices = torch.multinomial(
             torch.tensor(self.probabilities),
             num_samples=self.epoch_len,
@@ -340,10 +343,12 @@ class OpenFoldDataset(torch.utils.data.Dataset):
             generator=self.generator,
         )
         self.datapoints = []
-        for dataset_idx in dataset_choices:
-            samples = self._samples[dataset_idx]
-            datapoint_idx = next(samples)
-            self.datapoints.append((dataset_idx, datapoint_idx))
+        counter_datasets = Counter(dataset_choices.tolist())
+        for dataset_idx, num_samples in counter_datasets.items():
+            dataset = self.datasets[dataset_idx]
+            sample_choices = torch.randint(0, len(dataset), (num_samples,), generator=self.generator)
+            for datapoint_idx in sample_choices:
+                self.datapoints.append((dataset_idx, datapoint_idx))
 
 
 class OpenFoldBatchCollator:
