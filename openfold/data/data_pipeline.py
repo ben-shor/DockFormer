@@ -180,10 +180,12 @@ class DataPipeline:
         batched_ligand_bonds = torch.tensor(ligand_bonds, dtype=torch.int64)[None]
 
         return {
+            # These are used for reconstruction at the end of the pipeline
             "ligand_atype": batched_atom_types,
             "ligand_charge": batched_atom_charges,
             "ligand_chirality": batched_atom_chiralities,
             "ligand_bonds": batched_ligand_bonds,
+            # these are the actual features
             "ligand_target_feat": ligand_target_feat.float(),
             "ligand_bonds_feat": ligand_bonds_feat.float(),
         }

@@ -49,6 +49,10 @@ class AuxiliaryHeads(nn.Module):
             **config["affinity_1d"],
         )
 
+        self.affinity_cls = AffinityClsTokenPredictor(
+            **config["affinity_cls"],
+        )
+
         self.binding_site = BindingSitePredictor(
             **config["binding_site"],
         )
@@ -75,14 +79,17 @@ class AuxiliaryHeads(nn.Module):
         )
         aux_out["experimentally_resolved_logits"] = experimentally_resolved_logits
 
-        aux_out["affinity_2d_logits"] = self.affinity_2d(outputs["pair"], outputs["start_ligand_ind"])
-
-        aux_out["affinity_1d_logits"] =  self.affinity_1d(outputs["single"])
-
-        aux_out["binding_site_logits"] = self.binding_site(outputs["single"], outputs["start_ligand_ind"])
-
         aux_out["inter_contact_logits"] = self.inter_contact(outputs["single"], outputs["pair"],
                                                              outputs["start_ligand_ind"])
+
+        aux_out["affinity_2d_logits"] = self.affinity_2d(outputs["pair"], outputs["start_ligand_ind"],
+                                                         aux_out["inter_contact_logits"])
+
+        aux_out["affinity_1d_logits"] = self.affinity_1d(outputs["single"])
+
+        aux_out["affinity_cls_logits"] = self.affinity_cls(outputs["affinity_token"])
+
+        aux_out["binding_site_logits"] = self.binding_site(outputs["single"], outputs["start_ligand_ind"])
 
         return aux_out
 
@@ -94,19 +101,21 @@ class Affinity2DPredictor(nn.Module):
         self.c_z = c_z
 
         self.fc1 = Linear(self.c_z, self.c_z)
-        self.attention = Linear(self.c_z, 1)
+        self.weight_linear = Linear(self.c_z, 1)
         self.fc2 = Linear(self.c_z, num_bins)
 
-    def forward(self, z, start_ligand_ind):
+    def forward(self, z, start_ligand_ind, inter_contacts_logits):
         # Extract interface part of Z
-        x = z[:, start_ligand_ind:, :start_ligand_ind, :]
+        x = z[:, :start_ligand_ind, start_ligand_ind:, :]
 
         x = self.fc1(x)
 
         batch_size, N, M, _ = x.shape
         x_flat = x.view(batch_size, N * M, -1)
-        attention_weights = torch.softmax(self.attention(x_flat), dim=1)
-        weighted_sum = torch.sum(attention_weights * x_flat, dim=1)
+        inter_contacts_flat_sigmoid = torch.sigmoid(inter_contacts_logits.reshape(batch_size, N * M, 1))
+        linear_weight_logits = self.weight_linear(x_flat)
+        weights = torch.softmax(linear_weight_logits * inter_contacts_flat_sigmoid, dim=1)
+        weighted_sum = torch.sum(weights * x_flat, dim=1)
 
         affinity_logits = self.fc2(weighted_sum)
 
@@ -132,6 +141,17 @@ class Affinity1DPredictor(nn.Module):
 
         logits = self.linear2(s)
         return logits
+
+
+class AffinityClsTokenPredictor(nn.Module):
+    def __init__(self, c_s, num_bins, **kwargs):
+        super(AffinityClsTokenPredictor, self).__init__()
+
+        self.c_s = c_s
+        self.linear = Linear(self.c_s, num_bins, init="final")
+
+    def forward(self, s):
+        return self.linear(s)
 
 
 class BindingSitePredictor(nn.Module):

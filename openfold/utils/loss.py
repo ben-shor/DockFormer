@@ -645,44 +645,7 @@ def inter_contact_loss(
     contact_distance: float = 5.0,
     **kwargs,
 ):
-    # total_size = pseudo_beta.shape[0] + predicted_ligand_positions.shape[0]
-    # non_inter_mask = torch.ones((m, m))
-    #
-    # print("shapes", pseudo_beta.shape, pseudo_beta_mask.shape, gt_ligand_positions.shape)
-    # protein_mask = logits.new_tensor(torch.zeros(pseudo_beta.shape[1] + gt_ligand_positions.shape[1]))
-    # print("shapes 2", pseudo_beta.shape, protein_mask.shape, pseudo_beta_mask.shape)
-    # protein_mask[:pseudo_beta.shape[0]] = pseudo_beta_mask
-    #
-    # ligand_mask = logits.new_tensor(torch.zeros(pseudo_beta.shape[1] + gt_ligand_positions.shape[1]))
-    # ligand_mask[pseudo_beta.shape[0]:] = 1
-    #
-    # square_mask = protein_mask[..., None] * ligand_mask[..., None, :]
-    #
-    # all_atom_positions = torch.cat([pseudo_beta, gt_ligand_positions], dim=-2)
-    #
-    # has_contact = (all_atom_positions[..., None, :] - all_atom_positions[..., None, :, :]) < contact_distance
-    # print("shapes", has_contact.shape, pseudo_beta.shape, gt_ligand_positions.shape, pseudo_beta_mask.shape)
-    #
-    # n_protein = pseudo_beta.shape[0]
-    # inter_has_contact = has_contact[:, n_protein:, :n_protein]
-    # inter_logits = logits[:, n_protein:, :n_protein]
-    #
-    # print("has_contact", has_contact.shape, inter_has_contact.shape, inter_logits.shape)
-    # print("full_mask", square_mask.shape)
-
-    # a_expanded = pseudo_beta.unsqueeze(2)  # Shape: (1, N_prot, 1, 3)
-    # b_expanded = gt_ligand_positions.unsqueeze(1)  # Shape: (1, 1, N_lig, 3)
-    #
-    # # Calculate pairwise distances
-    # distances = torch.sqrt(torch.sum((a_expanded - b_expanded) ** 2, dim=-1))
-    #
-    # has_contact = distances < contact_distance
-    # has_contact = has_contact.float()
-
     inter_logits = logits.squeeze(-1)
-
-    # print("has_contact", gt_inter_contacts.shape, inter_logits.shape)
-
     criterion = nn.BCEWithLogitsLoss(pos_weight=logits.new_tensor([pos_class_weight]))
     loss = criterion(inter_logits, gt_inter_contacts)
     return loss
@@ -708,8 +671,7 @@ def affinity_loss(
         logits,
         torch.nn.functional.one_hot(true_bins, no_bins),
     )
-
-    return torch.sum(errors)
+    return torch.mean(errors)
 
 
 def positions_inter_distogram_loss(
@@ -764,22 +726,25 @@ def positions_intra_ligand_distogram_loss(
 ):
     predicted_ligand_positions = out["sm"]["ligand_atom_positions"][-1]
 
-    pred_dists = torch.sum(
+    pred_dists_squared = torch.sum(
         (predicted_ligand_positions[..., None, :] - predicted_ligand_positions[..., None, :, :]) ** 2,
         dim=-1,
         keepdims=True,
     )
 
-    gt_dists = torch.sum(
+    gt_dists_squared = torch.sum(
         (gt_ligand_positions[..., None, :] - gt_ligand_positions[..., None, :, :]) ** 2,
         dim=-1,
         keepdims=True,
     )
 
-    pred_dists = torch.sqrt(eps + pred_dists.clamp(max=max_dist ** 2))
-    gt_dists = torch.sqrt(eps + gt_dists.clamp(max=max_dist ** 2))
+    pred_dists = torch.sqrt(eps + pred_dists_squared.clamp(max=max_dist ** 2)) / length_scale
+    gt_dists = torch.sqrt(eps + gt_dists_squared.clamp(max=max_dist ** 2)) / length_scale
 
-    dists_diff = torch.abs(pred_dists - gt_dists) / length_scale
+    # L1 loss
+    # dists_diff = torch.abs(pred_dists - gt_dists)
+    # L2 loss
+    dists_diff = (pred_dists - gt_dists) ** 2
 
     intra_ligand_loss = torch.mean(dists_diff)
 
@@ -1824,6 +1789,10 @@ class AlphaFoldLoss(nn.Module):
             "affinity2d": lambda: affinity_loss(
                 logits=out["affinity_2d_logits"],
                 **{**batch, **self.config.affinity2d},
+            ),
+            "affinity_cls": lambda: affinity_loss(
+                logits=out["affinity_cls_logits"],
+                **{**batch, **self.config.affinity_cls},
             ),
             "binding_site": lambda: binding_site_loss(
                 logits=out["binding_site_logits"],

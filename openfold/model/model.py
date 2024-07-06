@@ -248,6 +248,7 @@ class AlphaFold(nn.Module):
         outputs["msa"] = m[..., :1, :, :]
         outputs["pair"] = z
         outputs["single"] = s
+        outputs["affinity_token"] = s[..., -1:, :]
 
         # TODO bshor: this is needed for aux heads, but shouldn't really be part of the output
         outputs["start_ligand_ind"] = torch.tensor([n_res]).to(device)

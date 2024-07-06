@@ -188,7 +188,7 @@ config = mlc.ConfigDict(
             "structure_input_embedder": {
                 "protein_tf_dim": 22,
                 # len(POSSIBLE_ATOM_TYPES) + len(POSSIBLE_CHARGES) + len(POSSIBLE_CHIRALITIES)
-                "ligand_tf_dim": 34,
+                "ligand_tf_dim": 35,
                 "ligand_bond_dim": 6,
                 "c_z": c_z,
                 "c_m": c_m,
@@ -269,6 +269,10 @@ config = mlc.ConfigDict(
                     "c_s": c_s,
                     "num_bins": aux_affinity_bins,
                 },
+                "affinity_cls": {
+                    "c_s": c_s,
+                    "num_bins": aux_affinity_bins,
+                },
                 "binding_site": {
                     "c_s": c_s,
                     "c_out": 1,
@@ -327,9 +331,15 @@ config = mlc.ConfigDict(
                 "min_bin": 0,
                 "max_bin": 15,
                 "no_bins": aux_affinity_bins,
-                "weight": 0.,
+                "weight": 0.0,
             },
             "affinity1d": {
+                "min_bin": 0,
+                "max_bin": 15,
+                "no_bins": aux_affinity_bins,
+                "weight": 0.0,
+            },
+            "affinity_cls": {
                 "min_bin": 0,
                 "max_bin": 15,
                 "no_bins": aux_affinity_bins,

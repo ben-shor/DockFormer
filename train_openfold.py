@@ -179,6 +179,7 @@ class OpenFoldWrapper(pl.LightningModule):
 
         metrics["drmsd_intra_ligand"] = drmsd_intra_ligand_score
 
+        # --- inter contacts
         pred_contacts = torch.sigmoid(outputs["inter_contact_logits"].clone().detach()).squeeze(-1)
         pred_contacts = (pred_contacts > 0.5).float()
         gt_contacts = batch["gt_inter_contacts"]
@@ -195,7 +196,25 @@ class OpenFoldWrapper(pl.LightningModule):
         metrics["inter_contacts_recall"] = recall.clone().detach()
         metrics["inter_contacts_precision"] = precision.clone().detach()
 
-        print("inter_contacts recall", recall, "precision", precision, tp, fp, fn, torch.ones_like(gt_contacts).sum())
+        # print("inter_contacts recall", recall, "precision", precision, tp, fp, fn, torch.ones_like(gt_contacts).sum())
+
+        # --- Affinity
+        pred_affinity_1d = torch.sum(
+            torch.softmax(outputs["affinity_1d_logits"].clone().detach(), -1) * torch.linspace(0, 15, 32), dim=-1).item()
+
+        pred_affinity_2d = torch.sum(
+            torch.softmax(outputs["affinity_2d_logits"].clone().detach(), -1) * torch.linspace(0, 15, 32), dim=-1).item()
+
+        pred_affinity_cls = torch.sum(
+            torch.softmax(outputs["affinity_cls_logits"].clone().detach(), -1) * torch.linspace(0, 15, 32), dim=-1).item()
+
+        metrics["affinity_dist_1d"] = torch.abs(batch["affinity"] - pred_affinity_1d)
+        metrics["affinity_dist_2d"] = torch.abs(batch["affinity"] - pred_affinity_2d)
+        metrics["affinity_dist_cls"] = torch.abs(batch["affinity"] - pred_affinity_cls)
+        metrics["affinity_dist_avg"] = torch.abs(batch["affinity"]
+                                                 - (pred_affinity_cls + pred_affinity_1d + pred_affinity_2d) / 3)
+        # print("affinity", batch["affinity"], pred_affinity_1d, pred_affinity_2d, pred_affinity_cls,
+        #       metrics["affinity_1d_dist"], metrics["affinity_2d_dist"], metrics["affinity_cls_dist"], metrics["affinity_avg_dist"])
 
         if superimposition_metrics:
             superimposed_pred, alignment_rmsd, rots, transs = superimpose(

@@ -13,12 +13,12 @@ import lightning as L
 import torch
 from torch.utils.data import RandomSampler
 
-from openfold.config import model_config
 from openfold.np.residue_constants import restypes
 from openfold.data import (
     data_pipeline,
     feature_pipeline,
 )
+from openfold.utils.consts import POSSIBLE_ATOM_TYPES
 from openfold.utils.tensor_utils import dict_multimap
 from openfold.utils.tensor_utils import (
     tensor_tree_map,
@@ -117,19 +117,41 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
 
         protein_lig_seq_mask = torch.cat([input_protein_feats["seq_mask"], torch.ones((n_lig, num_recycles))], dim=0)
         protein_lig_msa_mask = torch.cat([input_protein_feats["msa_mask"], torch.ones((n_lig, num_recycles))], dim=0)
+        ligand_target_feat = ref_ligand_feats["ligand_target_feat"]
+        ligand_bonds_feat = ref_ligand_feats["ligand_bonds_feat"]
+        ref_ligand_positions = ref_ligand_feats["ligand_positions"]
+
+        # add affinity, add additional token
+        protein_lig_seq_mask = torch.cat([protein_lig_seq_mask, torch.ones((1, num_recycles))], dim=0)
+        protein_lig_msa_mask = torch.cat([protein_lig_msa_mask, torch.ones((1, num_recycles))], dim=0)
+
+        affinity_target_feat = torch.zeros((1, ligand_target_feat.shape[-2]), dtype=torch.float32)
+        affinity_target_feat[0, POSSIBLE_ATOM_TYPES.index("[AFFINITY]")] = 1
+        affinity_target_feat = self._prepare_recycles(affinity_target_feat, num_recycles)
+        ligand_target_feat = torch.cat([ligand_target_feat, affinity_target_feat], dim=0)
+
+        bonds_feat_size = ligand_bonds_feat.shape[-2]
+        column_zeros = torch.zeros(n_lig, 1, bonds_feat_size, num_recycles)
+        row_zeros = torch.zeros(1, n_lig + 1, bonds_feat_size, num_recycles)
+        tensor_with_col = torch.cat([ligand_bonds_feat, column_zeros], dim=1)
+        ligand_bonds_feat = torch.cat([tensor_with_col, row_zeros], dim=0)
+
+        center = ref_ligand_positions.mean(dim=0)
+        ref_ligand_positions = torch.cat([ref_ligand_positions, center.unsqueeze(0)], dim=0)
 
         feats = {
             **input_protein_feats,
             "protein_lig_seq_mask": protein_lig_seq_mask,
             "protein_lig_msa_mask": protein_lig_msa_mask,
             "input_pseudo_beta": input_protein_feats["pseudo_beta"],
-            "ligand_target_feat": ref_ligand_feats["ligand_target_feat"],
-            "ligand_bonds_feat": ref_ligand_feats["ligand_bonds_feat"],
+            "ligand_target_feat": ligand_target_feat,
+            "ligand_bonds_feat": ligand_bonds_feat,
+            "ref_ligand_positions": ref_ligand_positions,
+            # These are only used for reconstruction at the end of the pipeline
             "ligand_atype": ref_ligand_feats["ligand_atype"],
             "ligand_chirality": ref_ligand_feats["ligand_chirality"],
             "ligand_charge": ref_ligand_feats["ligand_charge"],
             "ligand_bonds": ref_ligand_feats["ligand_bonds"],
-            "ref_ligand_positions": ref_ligand_feats["ligand_positions"],
         }
 
         if self.mode == 'train' or self.mode == 'eval':
@@ -142,6 +164,8 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
                 os.path.join(parent_dir, input_data["ref_sdf"]),
                 os.path.join(parent_dir, input_data["gt_sdf"]),
             )
+            center = gt_ligand_positions.mean(dim=0)
+            gt_ligand_positions = torch.cat([gt_ligand_positions, center.unsqueeze(0)], dim=0)
             gt_ligand_positions = self._prepare_recycles(gt_ligand_positions, num_recycles)
 
             affinity = self._prepare_recycles(torch.tensor([input_data["affinity"]], dtype=torch.float32), num_recycles)
