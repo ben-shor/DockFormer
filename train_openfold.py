@@ -200,13 +200,13 @@ class OpenFoldWrapper(pl.LightningModule):
 
         # --- Affinity
         pred_affinity_1d = torch.sum(
-            torch.softmax(outputs["affinity_1d_logits"].clone().detach(), -1) * torch.linspace(0, 15, 32), dim=-1).item()
+            torch.softmax(outputs["affinity_1d_logits"].clone().detach(), -1).cpu() * torch.linspace(0, 15, 32), dim=-1).item()
 
         pred_affinity_2d = torch.sum(
-            torch.softmax(outputs["affinity_2d_logits"].clone().detach(), -1) * torch.linspace(0, 15, 32), dim=-1).item()
+            torch.softmax(outputs["affinity_2d_logits"].clone().detach(), -1).cpu() * torch.linspace(0, 15, 32), dim=-1).item()
 
         pred_affinity_cls = torch.sum(
-            torch.softmax(outputs["affinity_cls_logits"].clone().detach(), -1) * torch.linspace(0, 15, 32), dim=-1).item()
+            torch.softmax(outputs["affinity_cls_logits"].clone().detach(), -1).cpu() * torch.linspace(0, 15, 32), dim=-1).item()
 
         metrics["affinity_dist_1d"] = torch.abs(batch["affinity"] - pred_affinity_1d)
         metrics["affinity_dist_2d"] = torch.abs(batch["affinity"] - pred_affinity_2d)
