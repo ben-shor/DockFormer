@@ -6,8 +6,7 @@ build
 dist
 
 # files from script downloads
-data
-openfold/resources/
-!openfold/resources/stereo_chemical_props.txt
+evodocker/resources/
+!evodocker/resources/stereo_chemical_props.txt
 tests/test_data/
 cutlass/
