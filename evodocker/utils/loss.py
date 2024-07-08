@@ -43,8 +43,13 @@ def softmax_cross_entropy(logits, labels):
 
 def sigmoid_cross_entropy(logits, labels):
     logits_dtype = logits.dtype
-    logits = logits.double()
-    labels = labels.double()
+    try:
+        logits = logits.double()
+        labels = labels.double()
+    except:
+        logits = logits.to(dtype=torch.float32)
+        labels = labels.to(dtype=torch.float32)
+
     log_p = torch.nn.functional.logsigmoid(logits)
     # log_p = torch.log(torch.sigmoid(logits))
     log_not_p = torch.nn.functional.logsigmoid(-1 * logits)
