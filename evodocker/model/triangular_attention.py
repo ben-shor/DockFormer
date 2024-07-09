@@ -21,11 +21,7 @@ import torch
 import torch.nn as nn
 
 from evodocker.model.primitives import Linear, LayerNorm, Attention
-from evodocker.utils.chunk_utils import chunk_layer
-from evodocker.utils.tensor_utils import (
-    permute_final_dims,
-    flatten_final_dims,
-)
+from evodocker.utils.tensor_utils import permute_final_dims
 
 
 class TriangleAttention(nn.Module):
@@ -57,42 +53,11 @@ class TriangleAttention(nn.Module):
             self.c_in, self.c_in, self.c_in, self.c_hidden, self.no_heads
         )
 
-    @torch.jit.ignore
-    def _chunk(self,
-        x: torch.Tensor,
-        biases: List[torch.Tensor],
-        chunk_size: int,
-        use_memory_efficient_kernel: bool = False,
-        use_lma: bool = False,
-        inplace_safe: bool = False,
-    ) -> torch.Tensor:
-        "triangle! triangle!"
-        mha_inputs = {
-            "q_x": x,
-            "kv_x": x,
-            "biases": biases,
-        }
-
-        return chunk_layer(
-            partial(
-                self.mha, 
-                use_memory_efficient_kernel=use_memory_efficient_kernel,
-                use_lma=use_lma
-            ),
-            mha_inputs,
-            chunk_size=chunk_size,
-            no_batch_dims=len(x.shape[:-2]),
-            _out=x if inplace_safe else None,
-        )
-
     def forward(self, 
         x: torch.Tensor, 
         mask: Optional[torch.Tensor] = None,
-        chunk_size: Optional[int] = None,
         use_memory_efficient_kernel: bool = False,
-
         use_lma: bool = False,
-        inplace_safe: bool = False,
     ) -> torch.Tensor:
         """
         Args:
@@ -125,23 +90,13 @@ class TriangleAttention(nn.Module):
 
         biases = [mask_bias, triangle_bias]
 
-        if chunk_size is not None:
-            x = self._chunk(
-                x, 
-                biases, 
-                chunk_size, 
-                use_memory_efficient_kernel=use_memory_efficient_kernel,
-                use_lma=use_lma,
-                inplace_safe=inplace_safe,
-            )
-        else:
-            x = self.mha(
-                q_x=x, 
-                kv_x=x, 
-                biases=biases, 
-                use_memory_efficient_kernel=use_memory_efficient_kernel,
-                use_lma=use_lma
-            )
+        x = self.mha(
+            q_x=x,
+            kv_x=x,
+            biases=biases,
+            use_memory_efficient_kernel=use_memory_efficient_kernel,
+            use_lma=use_lma
+        )
 
         if(not self.starting):
             x = x.transpose(-2, -3)

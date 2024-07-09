@@ -22,15 +22,9 @@ from typing import Optional, List, Tuple
 from evodocker.model.primitives import (
     Linear, 
     LayerNorm,
-    Attention, 
-    GlobalAttention, 
-    _attention_chunked_trainable,
+    Attention,
 )
-from evodocker.utils.chunk_utils import chunk_layer
-from evodocker.utils.tensor_utils import (
-    permute_final_dims,
-    flatten_final_dims,
-)
+from evodocker.utils.tensor_utils import permute_final_dims
 
 
 class MSAAttention(nn.Module):
@@ -86,37 +80,6 @@ class MSAAttention(nn.Module):
             self.no_heads,
         )
 
-    @torch.jit.ignore
-    def _chunk(self, 
-        m: torch.Tensor,
-        biases: Optional[List[torch.Tensor]],
-        chunk_size: int,
-        use_memory_efficient_kernel: bool,
-        use_lma: bool,
-    ) -> torch.Tensor:
-        def fn(m, biases):
-            m = self.layer_norm_m(m)
-            return self.mha(
-                q_x=m, 
-                kv_x=m, 
-                biases=biases,
-                use_memory_efficient_kernel=use_memory_efficient_kernel,
-                use_lma=use_lma,
-            )
-
-        inputs = {"m": m}
-        if(biases is not None):
-            inputs["biases"] = biases
-        else:
-            fn = partial(fn, biases=None)
-
-        return chunk_layer(
-            fn,
-            inputs,
-            chunk_size=chunk_size,
-            no_batch_dims=len(m.shape[:-2])
-        )
-
     def _prep_inputs(self,
         m: torch.Tensor,
         z: Optional[torch.Tensor],
@@ -155,63 +118,13 @@ class MSAAttention(nn.Module):
 
         return m, mask_bias, z
 
-    @torch.jit.ignore
-    def _chunked_msa_attn(self,
-        m: torch.Tensor,
-        z: Optional[torch.Tensor],
-        mask: Optional[torch.Tensor],
-        chunk_logits: int,
-        checkpoint: bool,
-        inplace_safe: bool = False
-    ) -> torch.Tensor:
-        """ 
-        MSA attention with training-time chunking of the softmax computation.
-        Saves memory in the extra MSA stack. Probably obviated by our fused 
-        attention kernel, which is now used by default.
-        """
-        MSA_DIM = -4
-
-        def _get_qkv(m, z):
-            m, mask_bias, z = self._prep_inputs(
-                m, z, mask, inplace_safe=inplace_safe
-            )
-            m = self.layer_norm_m(m)
-            q, k, v = self.mha._prep_qkv(m, m)
-            return m, q, k, v, mask_bias, z
-
-        if(torch.is_grad_enabled() and checkpoint):
-            m, q, k, v, mask_bias, z = torch.utils.checkpoint.checkpoint(_get_qkv, m, z)
-        else:
-            m, q, k, v, mask_bias, z = _get_qkv(m, z)
-       
-        o = _attention_chunked_trainable(
-            query=q, 
-            key=k, 
-            value=v, 
-            biases=[mask_bias, z], 
-            chunk_size=chunk_logits, 
-            chunk_dim=MSA_DIM,
-            checkpoint=checkpoint,
-        )
-
-        if(torch.is_grad_enabled() and checkpoint):
-            # Storing an additional m here is far from ideal
-            m = checkpoint_fn(self.mha._wrap_up, o, m)
-        else:
-            m = self.mha._wrap_up(o, m)
-
-        return m
-
     def forward(self, 
         m: torch.Tensor, 
         z: Optional[torch.Tensor] = None, 
         mask: Optional[torch.Tensor] = None, 
-        chunk_size: Optional[int] = None,
         use_memory_efficient_kernel: bool = False,
         use_lma: bool = False,
         inplace_safe: bool = False,
-        _chunk_logits: Optional[int] = None,
-        _checkpoint_chunks: Optional[bool] = None,
     ) -> torch.Tensor:
         """
         Args:
@@ -222,20 +135,7 @@ class MSAAttention(nn.Module):
                 pair_bias is True
             mask:
                 [*, N_seq, N_res] MSA mask
-            chunk_size:
-                Size of chunks into which the inputs are split along their
-                batch dimensions. A low value decreases memory overhead at the 
-                cost of slower execution. Chunking is not performed by default.
-                
         """
-        if(_chunk_logits is not None):
-            return self._chunked_msa_attn(
-                m=m, z=z, mask=mask, 
-                chunk_logits=_chunk_logits, 
-                checkpoint=_checkpoint_chunks,
-                inplace_safe=inplace_safe,
-            )
-
         m, mask_bias, z = self._prep_inputs(
             m, z, mask, inplace_safe=inplace_safe
         )
@@ -244,23 +144,14 @@ class MSAAttention(nn.Module):
         if(z is not None):
             biases.append(z)
 
-        if chunk_size is not None:
-            m = self._chunk(
-                m, 
-                biases, 
-                chunk_size,
-                use_memory_efficient_kernel=use_memory_efficient_kernel,
-                use_lma=use_lma,
-            )
-        else:
-            m = self.layer_norm_m(m)
-            m = self.mha(
-                q_x=m, 
-                kv_x=m, 
-                biases=biases,
-                use_memory_efficient_kernel=use_memory_efficient_kernel,
-                use_lma=use_lma,
-            )
+        m = self.layer_norm_m(m)
+        m = self.mha(
+            q_x=m,
+            kv_x=m,
+            biases=biases,
+            use_memory_efficient_kernel=use_memory_efficient_kernel,
+            use_lma=use_lma,
+        )
 
         return m
 

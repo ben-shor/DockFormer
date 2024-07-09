@@ -257,61 +257,6 @@ def _attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, bias
     return a
 
 
-@torch.jit.ignore
-def _attention_chunked_trainable(
-    query, key, value, biases, chunk_size, chunk_dim, checkpoint, 
-):
-    if checkpoint and len(biases) > 2:
-        raise ValueError(
-            "Checkpointed version permits only permits two bias terms"
-        )
-
-    def _checkpointable_attention(q, k, v, b1, b2):
-        bs = [b for b in [b1, b2] if b is not None]
-        a = _attention(q, k, v, bs)
-        return a
-
-    o_chunks = []
-    checkpoint_fn = get_checkpoint_fn()
-    count = query.shape[chunk_dim]
-    for start in range(0, count, chunk_size):
-        end = start + chunk_size
-        idx = [slice(None)] * len(query.shape)
-        idx[chunk_dim] = slice(start, end)
-        idx_tup = tuple(idx)
-        q_chunk = query[idx_tup]
-        k_chunk = key[idx_tup]
-        v_chunk = value[idx_tup]
-
-        def _slice_bias(b):
-            idx[chunk_dim] = (
-                slice(start, end) if b.shape[chunk_dim] != 1 else slice(None)
-            )
-            return b[tuple(idx)]
-
-        if checkpoint:
-            bias_1_chunk, bias_2_chunk = [
-                _slice_bias(b) if b is not None else None
-                for b in (biases + [None, None])[:2]
-            ]
-
-            o_chunk = torch.utils.checkpoint.checkpoint(_checkpointable_attention,
-                q_chunk, k_chunk, v_chunk, bias_1_chunk, bias_2_chunk
-            )
-        else:
-            bias_chunks = [
-                _slice_bias(b) for b in biases
-            ]
-
-            o_chunk = _attention(q_chunk, k_chunk, v_chunk, bias_chunks)
-            
-        o_chunk = o_chunk.transpose(-2, -3)
-        o_chunks.append(o_chunk)
-
-    o = torch.cat(o_chunks, dim=chunk_dim)
-    return o
-
-
 class Attention(nn.Module):
     """
     Standard multi-head attention using AlphaFold's default layer

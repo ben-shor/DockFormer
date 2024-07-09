@@ -18,7 +18,6 @@ import torch
 import torch.nn as nn
 
 from evodocker.model.primitives import Linear, LayerNorm
-from evodocker.utils.chunk_utils import chunk_layer
 
 
 class PairTransition(nn.Module):
@@ -59,23 +58,9 @@ class PairTransition(nn.Module):
 
         return z
 
-    @torch.jit.ignore
-    def _chunk(self,
-        z: torch.Tensor,
-        mask: torch.Tensor,
-        chunk_size: int,
-    ) -> torch.Tensor:
-        return chunk_layer(
-            self._transition,
-            {"z": z, "mask": mask},
-            chunk_size=chunk_size,
-            no_batch_dims=len(z.shape[:-2]),
-        )
-
     def forward(self, 
         z: torch.Tensor, 
         mask: Optional[torch.Tensor] = None,
-        chunk_size: Optional[int] = None,
     ) -> torch.Tensor:
         """
         Args:
@@ -91,9 +76,6 @@ class PairTransition(nn.Module):
         # [*, N_res, N_res, 1]
         mask = mask.unsqueeze(-1)
 
-        if chunk_size is not None:
-            z = self._chunk(z, mask, chunk_size)
-        else:
-            z = self._transition(z=z, mask=mask)
+        z = self._transition(z=z, mask=mask)
 
         return z

@@ -28,17 +28,12 @@ def model_config(
     if long_sequence_inference:
         assert(not train)
         c.globals.offload_inference = True
-        c.model.evoformer_stack.tune_chunk_size = False
 
-    # TODO bshor: added this because tuning stuck. why is this needed? what is this tuning?
-    c.model.evoformer_stack.tune_chunk_size = False
-    c.globals.chunk_size = None
     c.globals.use_lma = False
     c.globals.offload_inference = False
     
     if train:
         c.globals.blocks_per_ckpt = 1
-        c.globals.chunk_size = None
         c.globals.use_lma = False
         c.globals.offload_inference = False
     
@@ -61,11 +56,9 @@ c_s = mlc.FieldReference(384, field_type=int)
 
 
 blocks_per_ckpt = mlc.FieldReference(None, field_type=int)
-chunk_size = mlc.FieldReference(4, field_type=int)
 aux_distogram_bins = mlc.FieldReference(64, field_type=int)
 aux_affinity_bins = mlc.FieldReference(32, field_type=int)
 eps = mlc.FieldReference(1e-8, field_type=float)
-tune_chunk_size = mlc.FieldReference(True, field_type=bool)
 
 NUM_RES = "num residues placeholder"
 NUM_MSA_SEQ = "msa placeholder"
@@ -160,7 +153,6 @@ config = mlc.ConfigDict(
         # Recurring FieldReferences that can be changed globally here
         "globals": {
             "blocks_per_ckpt": blocks_per_ckpt,
-            "chunk_size": chunk_size,
             # Use Staats & Rabe's low-memory attention algorithm.
             "use_lma": False,
             "offload_inference": False,
@@ -212,10 +204,8 @@ config = mlc.ConfigDict(
                 "transition_n": 4,
                 "msa_dropout": 0.15,
                 "pair_dropout": 0.25,
-                "fuse_projection_weights": False,
                 "blocks_per_ckpt": blocks_per_ckpt,
                 "clear_cache_between_blocks": False,
-                "tune_chunk_size": tune_chunk_size,
                 "inf": 1e9,
                 "eps": eps,  # 1e-10,
             },

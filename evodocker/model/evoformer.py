@@ -32,11 +32,8 @@ from evodocker.model.triangular_attention import (
 from evodocker.model.triangular_multiplicative_update import (
     TriangleMultiplicationOutgoing,
     TriangleMultiplicationIncoming,
-    FusedTriangleMultiplicationIncoming,
-    FusedTriangleMultiplicationOutgoing
 )
 from evodocker.utils.checkpointing import checkpoint_blocks
-from evodocker.utils.chunk_utils import chunk_layer, ChunkSizeTuner
 from evodocker.utils.tensor_utils import add
 
 
@@ -72,24 +69,10 @@ class MSATransition(nn.Module):
         m = self.linear_2(m) * mask
         return m
 
-    @torch.jit.ignore
-    def _chunk(self,
-        m: torch.Tensor,
-        mask: torch.Tensor,
-        chunk_size: int,
-    ) -> torch.Tensor:
-         return chunk_layer(
-             self._transition,
-             {"m": m, "mask": mask},
-             chunk_size=chunk_size,
-             no_batch_dims=len(m.shape[:-2]),
-         )
-
     def forward(
         self,
         m: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
-        chunk_size: Optional[int] = None,
     ) -> torch.Tensor:
         """
         Args:
@@ -107,10 +90,7 @@ class MSATransition(nn.Module):
 
         mask = mask.unsqueeze(-1)
 
-        if chunk_size is not None:
-            m = self._chunk(m, mask, chunk_size)
-        else:
-            m = self._transition(m, mask)
+        m = self._transition(m, mask)
 
         return m
 
@@ -124,30 +104,19 @@ class PairStack(nn.Module):
         no_heads_pair: int,
         transition_n: int,
         pair_dropout: float,
-        fuse_projection_weights: bool,
         inf: float,
         eps: float
     ):
         super(PairStack, self).__init__()
 
-        if fuse_projection_weights:
-            self.tri_mul_out = FusedTriangleMultiplicationOutgoing(
-                c_z,
-                c_hidden_mul,
-            )
-            self.tri_mul_in = FusedTriangleMultiplicationIncoming(
-                c_z,
-                c_hidden_mul,
-            )
-        else:
-            self.tri_mul_out = TriangleMultiplicationOutgoing(
-                c_z,
-                c_hidden_mul,
-            )
-            self.tri_mul_in = TriangleMultiplicationIncoming(
-                c_z,
-                c_hidden_mul,
-            )
+        self.tri_mul_out = TriangleMultiplicationOutgoing(
+            c_z,
+            c_hidden_mul,
+        )
+        self.tri_mul_in = TriangleMultiplicationIncoming(
+            c_z,
+            c_hidden_mul,
+        )
 
         self.tri_att_start = TriangleAttention(
             c_z,
@@ -172,19 +141,14 @@ class PairStack(nn.Module):
     def forward(self,
         z: torch.Tensor,
         pair_mask: torch.Tensor,
-        chunk_size: Optional[int] = None,
         use_lma: bool = False,
         inplace_safe: bool = False,
         _mask_trans: bool = True,
-        _attn_chunk_size: Optional[int] = None
     ) -> torch.Tensor:
         # DeepMind doesn't mask these transitions in the source, so _mask_trans
         # should be disabled to better approximate the exact activations of
         # the original.
         pair_trans_mask = pair_mask if _mask_trans else None
-
-        if (_attn_chunk_size is None):
-            _attn_chunk_size = chunk_size
 
         tmu_update = self.tri_mul_out(
             z,
@@ -217,10 +181,8 @@ class PairStack(nn.Module):
                     self.tri_att_start(
                         z,
                         mask=pair_mask,
-                        chunk_size=_attn_chunk_size,
                         use_memory_efficient_kernel=False,
                         use_lma=use_lma,
-                        inplace_safe=inplace_safe,
                     )
                 ),
                 inplace=inplace_safe,
@@ -235,10 +197,8 @@ class PairStack(nn.Module):
                     self.tri_att_end(
                         z,
                         mask=pair_mask.transpose(-1, -2),
-                        chunk_size=_attn_chunk_size,
                         use_memory_efficient_kernel=False,
                         use_lma=use_lma,
-                        inplace_safe=inplace_safe,
                     )
                 ),
                 inplace=inplace_safe,
@@ -250,7 +210,7 @@ class PairStack(nn.Module):
 
         z = add(z,
                 self.pair_transition(
-                    z, mask=pair_trans_mask, chunk_size=chunk_size,
+                    z, mask=pair_trans_mask,
                 ),
                 inplace=inplace_safe,
         )
@@ -271,7 +231,6 @@ class MSABlock(nn.Module, ABC):
         transition_n: int,
         msa_dropout: float,
         pair_dropout: float,
-        fuse_projection_weights: bool,
         inf: float,
         eps: float,
     ):
@@ -299,7 +258,6 @@ class MSABlock(nn.Module, ABC):
             no_heads_pair=no_heads_pair,
             transition_n=transition_n,
             pair_dropout=pair_dropout,
-            fuse_projection_weights=fuse_projection_weights,
             inf=inf,
             eps=eps
         )
@@ -310,11 +268,9 @@ class MSABlock(nn.Module, ABC):
         z: Optional[torch.Tensor],
         msa_mask: torch.Tensor,
         pair_mask: torch.Tensor,
-        chunk_size: Optional[int] = None,
         use_lma: bool = False,
         inplace_safe: bool = False,
         _mask_trans: bool = True,
-        _attn_chunk_size: Optional[int] = None,
         _offload_inference: bool = False,
         _offloadable_inputs: Optional[Sequence[torch.Tensor]] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -333,7 +289,6 @@ class EvoformerBlock(MSABlock):
         transition_n: int,
         msa_dropout: float,
         pair_dropout: float,
-        fuse_projection_weights: bool,
         inf: float,
         eps: float,
     ):
@@ -347,7 +302,6 @@ class EvoformerBlock(MSABlock):
                                              transition_n=transition_n,
                                              msa_dropout=msa_dropout,
                                              pair_dropout=pair_dropout,
-                                             fuse_projection_weights=fuse_projection_weights,
                                              inf=inf,
                                              eps=eps)
 
@@ -356,19 +310,14 @@ class EvoformerBlock(MSABlock):
         z: Optional[torch.Tensor],
         msa_mask: torch.Tensor,
         pair_mask: torch.Tensor,
-        chunk_size: Optional[int] = None,
         use_lma: bool = False,
         inplace_safe: bool = False,
         _mask_trans: bool = True,
-        _attn_chunk_size: Optional[int] = None,
         _offload_inference: bool = False,
         _offloadable_inputs: Optional[Sequence[torch.Tensor]] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
 
         msa_trans_mask = msa_mask if _mask_trans else None
-
-        if(_attn_chunk_size is None):
-            _attn_chunk_size = chunk_size
 
         if(_offload_inference and inplace_safe):
             input_tensors = _offloadable_inputs
@@ -381,12 +330,9 @@ class EvoformerBlock(MSABlock):
         z = self.pair_stack(
             z=z,
             pair_mask=pair_mask,
-            chunk_size=chunk_size,
-
             use_lma=use_lma,
             inplace_safe=inplace_safe,
             _mask_trans=_mask_trans,
-            _attn_chunk_size=_attn_chunk_size
         )
 
         m = add(m,
@@ -395,7 +341,6 @@ class EvoformerBlock(MSABlock):
                         m,
                         z=z,
                         mask=msa_mask,
-                        chunk_size=_attn_chunk_size,
                         use_memory_efficient_kernel=False,
                         use_lma=use_lma,
                     )
@@ -406,7 +351,7 @@ class EvoformerBlock(MSABlock):
         m = add(
             m,
             self.msa_transition(
-                m, mask=msa_trans_mask, chunk_size=chunk_size,
+                m, mask=msa_trans_mask
             ),
             inplace=inplace_safe,
         )
@@ -435,12 +380,10 @@ class EvoformerStack(nn.Module):
         transition_n: int,
         msa_dropout: float,
         pair_dropout: float,
-        fuse_projection_weights: bool,
         blocks_per_ckpt: int,
         inf: float,
         eps: float,
         clear_cache_between_blocks: bool = False, 
-        tune_chunk_size: bool = False,
         **kwargs,
     ):
         """
@@ -470,16 +413,11 @@ class EvoformerStack(nn.Module):
                 Dropout rate for MSA activations
             pair_dropout:
                 Dropout used for pair activations
-            fuse_projection_weights:
-                When True, uses FusedTriangleMultiplicativeUpdate variant in
-                the Pair Stack. Used in Multimer pipeline.
             blocks_per_ckpt:
                 Number of Evoformer blocks in each activation checkpoint
             clear_cache_between_blocks:
                 Whether to clear CUDA's GPU memory cache between blocks of the
                 stack. Slows down each block but can reduce fragmentation
-            tune_chunk_size:
-                Whether to dynamically tune the module's chunk size
         """
         super(EvoformerStack, self).__init__()
 
@@ -500,7 +438,6 @@ class EvoformerStack(nn.Module):
                 transition_n=transition_n,
                 msa_dropout=msa_dropout,
                 pair_dropout=pair_dropout,
-                fuse_projection_weights=fuse_projection_weights,
                 inf=inf,
                 eps=eps,
             )
@@ -508,15 +445,9 @@ class EvoformerStack(nn.Module):
 
         self.linear = Linear(c_m, c_s)
 
-        self.tune_chunk_size = tune_chunk_size
-        self.chunk_size_tuner = None
-        if(tune_chunk_size):
-            self.chunk_size_tuner = ChunkSizeTuner()
-
     def _prep_blocks(self, 
         m: torch.Tensor, 
         z: torch.Tensor, 
-        chunk_size: int,
         use_lma: bool,
         msa_mask: Optional[torch.Tensor],
         pair_mask: Optional[torch.Tensor],
@@ -528,7 +459,6 @@ class EvoformerStack(nn.Module):
                 b,
                 msa_mask=msa_mask,
                 pair_mask=pair_mask,
-                chunk_size=chunk_size,
                 use_lma=use_lma,
                 inplace_safe=inplace_safe,
                 _mask_trans=_mask_trans,
@@ -536,29 +466,12 @@ class EvoformerStack(nn.Module):
             for b in self.blocks
         ]
 
-        if(self.clear_cache_between_blocks):
+        if self.clear_cache_between_blocks:
             def block_with_cache_clear(block, *args, **kwargs):
                 torch.cuda.empty_cache()
                 return block(*args, **kwargs)
 
             blocks = [partial(block_with_cache_clear, b) for b in blocks]
-
-        if(chunk_size is not None and self.chunk_size_tuner is not None):
-            assert(not self.training)
-            tuned_chunk_size = self.chunk_size_tuner.tune_chunk_size(
-                representative_fn=blocks[0],
-                # We don't want to write in-place during chunk tuning runs
-                args=(m.clone(), z.clone(),),
-                min_chunk_size=chunk_size,
-            )
-            blocks = [
-                partial(b, 
-                    chunk_size=tuned_chunk_size,
-                    # A temporary measure to address torch's occasional
-                    # inability to allocate large tensors
-                    _attn_chunk_size=max(chunk_size, tuned_chunk_size // 4),
-                ) for b in blocks
-            ]
 
         return blocks
 
@@ -566,7 +479,6 @@ class EvoformerStack(nn.Module):
         input_tensors: Sequence[torch.Tensor],
         msa_mask: torch.Tensor,
         pair_mask: torch.Tensor,
-        chunk_size: int,
         use_lma: bool = False,
         _mask_trans: bool = True,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -576,7 +488,6 @@ class EvoformerStack(nn.Module):
             # this function
             m=input_tensors[0],
             z=input_tensors[1],
-            chunk_size=chunk_size,
             use_lma=use_lma,
             msa_mask=msa_mask,
             pair_mask=pair_mask,
@@ -606,7 +517,6 @@ class EvoformerStack(nn.Module):
         z: torch.Tensor,
         msa_mask: torch.Tensor,
         pair_mask: torch.Tensor,
-        chunk_size: int,
         use_lma: bool = False,
         inplace_safe: bool = False,
         _mask_trans: bool = True,
@@ -621,9 +531,6 @@ class EvoformerStack(nn.Module):
                 [*, N_seq, N_res] MSA mask
             pair_mask:
                 [*, N_res, N_res] pair mask
-            chunk_size: 
-                Inference-time subbatch size. Acts as a minimum if 
-                self.tune_chunk_size is True
             use_lma:
                 Whether to use low-memory attention during inference.
 
@@ -638,7 +545,6 @@ class EvoformerStack(nn.Module):
         blocks = self._prep_blocks(
             m=m,
             z=z,
-            chunk_size=chunk_size,
             use_lma=use_lma,
             msa_mask=msa_mask,
             pair_mask=pair_mask,
