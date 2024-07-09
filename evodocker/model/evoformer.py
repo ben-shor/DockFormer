@@ -312,7 +312,6 @@ class MSABlock(nn.Module, ABC):
         pair_mask: torch.Tensor,
         chunk_size: Optional[int] = None,
         use_lma: bool = False,
-        use_flash: bool = False,
         inplace_safe: bool = False,
         _mask_trans: bool = True,
         _attn_chunk_size: Optional[int] = None,
@@ -359,7 +358,6 @@ class EvoformerBlock(MSABlock):
         pair_mask: torch.Tensor,
         chunk_size: Optional[int] = None,
         use_lma: bool = False,
-        use_flash: bool = False,
         inplace_safe: bool = False,
         _mask_trans: bool = True,
         _attn_chunk_size: Optional[int] = None,
@@ -520,7 +518,6 @@ class EvoformerStack(nn.Module):
         z: torch.Tensor, 
         chunk_size: int,
         use_lma: bool,
-        use_flash: bool,
         msa_mask: Optional[torch.Tensor],
         pair_mask: Optional[torch.Tensor],
         inplace_safe: bool,
@@ -533,7 +530,6 @@ class EvoformerStack(nn.Module):
                 pair_mask=pair_mask,
                 chunk_size=chunk_size,
                 use_lma=use_lma,
-                use_flash=use_flash,
                 inplace_safe=inplace_safe,
                 _mask_trans=_mask_trans,
             )
@@ -572,7 +568,6 @@ class EvoformerStack(nn.Module):
         pair_mask: torch.Tensor,
         chunk_size: int,
         use_lma: bool = False,
-        use_flash: bool = False,
         _mask_trans: bool = True,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         assert(not (self.training or torch.is_grad_enabled()))
@@ -583,7 +578,6 @@ class EvoformerStack(nn.Module):
             z=input_tensors[1],
             chunk_size=chunk_size,
             use_lma=use_lma,
-            use_flash=use_flash,
             msa_mask=msa_mask,
             pair_mask=pair_mask,
             inplace_safe=True,
@@ -614,7 +608,6 @@ class EvoformerStack(nn.Module):
         pair_mask: torch.Tensor,
         chunk_size: int,
         use_lma: bool = False,
-        use_flash: bool = False,
         inplace_safe: bool = False,
         _mask_trans: bool = True,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -633,10 +626,7 @@ class EvoformerStack(nn.Module):
                 self.tune_chunk_size is True
             use_lma:
                 Whether to use low-memory attention during inference.
-                Mutually exclusive with use_flash
-            use_flash: 
-                Whether to use FlashAttention where possible. Mutually 
-                exclusive with use_lma
+
         Returns:
             m:
                 [*, N_seq, N_res, C_m] MSA embedding
@@ -650,7 +640,6 @@ class EvoformerStack(nn.Module):
             z=z,
             chunk_size=chunk_size,
             use_lma=use_lma,
-            use_flash=use_flash,
             msa_mask=msa_mask,
             pair_mask=pair_mask,
             inplace_safe=inplace_safe,

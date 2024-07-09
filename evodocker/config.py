@@ -28,7 +28,6 @@ def model_config(
     if long_sequence_inference:
         assert(not train)
         c.globals.offload_inference = True
-        c.globals.use_flash = False
         c.model.evoformer_stack.tune_chunk_size = False
 
     # TODO bshor: added this because tuning stuck. why is this needed? what is this tuning?
@@ -162,12 +161,8 @@ config = mlc.ConfigDict(
         "globals": {
             "blocks_per_ckpt": blocks_per_ckpt,
             "chunk_size": chunk_size,
-            # Use Staats & Rabe's low-memory attention algorithm. Mutually
-            # exclusive with use_flash.
+            # Use Staats & Rabe's low-memory attention algorithm.
             "use_lma": False,
-            # Use FlashAttention in selected modules. Mutually exclusive with use_lma.
-            # Doesn't work that well on long sequences (>1000 residues).
-            "use_flash": False,
             "offload_inference": False,
             "max_lr": 1e-3,
             "c_z": c_z,

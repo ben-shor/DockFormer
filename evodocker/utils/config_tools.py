@@ -23,7 +23,6 @@ def enforce_config_constraints(config):
     mutually_exclusive_bools = [
         (
             "globals.use_lma",
-            "globals.use_flash",
         ),
     ]
 
@@ -31,7 +30,3 @@ def enforce_config_constraints(config):
         option_settings = [string_to_setting(o) for o in options]
         if sum(option_settings) > 1:
             raise ValueError(f"Only one of {', '.join(options)} may be set at a time")
-
-    fa_is_installed = importlib.util.find_spec("flash_attn") is not None
-    if config.globals.use_flash and not fa_is_installed:
-        raise ValueError("use_flash requires that FlashAttention is installed")
