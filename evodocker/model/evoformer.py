@@ -271,8 +271,6 @@ class MSABlock(nn.Module, ABC):
         use_lma: bool = False,
         inplace_safe: bool = False,
         _mask_trans: bool = True,
-        _offload_inference: bool = False,
-        _offloadable_inputs: Optional[Sequence[torch.Tensor]] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         pass
 
@@ -313,17 +311,11 @@ class EvoformerBlock(MSABlock):
         use_lma: bool = False,
         inplace_safe: bool = False,
         _mask_trans: bool = True,
-        _offload_inference: bool = False,
-        _offloadable_inputs: Optional[Sequence[torch.Tensor]] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
 
         msa_trans_mask = msa_mask if _mask_trans else None
 
-        if(_offload_inference and inplace_safe):
-            input_tensors = _offloadable_inputs
-            del _offloadable_inputs
-        else:
-            input_tensors = [m, z]
+        input_tensors = [m, z]
 
         m, z = input_tensors
 
@@ -474,43 +466,6 @@ class EvoformerStack(nn.Module):
             blocks = [partial(block_with_cache_clear, b) for b in blocks]
 
         return blocks
-
-    def _forward_offload(self,
-        input_tensors: Sequence[torch.Tensor],
-        msa_mask: torch.Tensor,
-        pair_mask: torch.Tensor,
-        use_lma: bool = False,
-        _mask_trans: bool = True,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        assert(not (self.training or torch.is_grad_enabled()))
-        blocks = self._prep_blocks(
-            # We are very careful not to create references to these tensors in
-            # this function
-            m=input_tensors[0],
-            z=input_tensors[1],
-            use_lma=use_lma,
-            msa_mask=msa_mask,
-            pair_mask=pair_mask,
-            inplace_safe=True,
-            _mask_trans=_mask_trans,
-        )
-
-        for b in blocks:
-            m, z = b(
-                None, 
-                None, 
-                _offload_inference=True,
-                _offloadable_inputs=input_tensors,
-            )
-            input_tensors[0] = m
-            input_tensors[1] = z
-            del m, z
-        
-        m, z = input_tensors
-        
-        s = self.linear(m)
-        
-        return m, z, s
 
     def forward(self,
         m: torch.Tensor,

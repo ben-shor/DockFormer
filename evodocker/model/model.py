@@ -181,11 +181,6 @@ class AlphaFold(nn.Module):
         del x_prev_protein
         del lig_atoms_pos
 
-        # The recycling embedder is memory-intensive, so we offload first
-        if self.globals.offload_inference and inplace_safe:
-            m = m.cpu()
-            z = z.cpu()
-
         # m_1_prev_emb: [*, N, C_m]
         # z_prev_emb: [*, N, N, C_z]
         m_1_prev_emb, z_prev_emb = self.recycling_embedder(
@@ -197,10 +192,6 @@ class AlphaFold(nn.Module):
 
         del pseudo_beta_x_prev
         del beta_ligand_x_prev
-
-        if self.globals.offload_inference and inplace_safe:
-            m = m.to(m_1_prev_emb.device)
-            z = z.to(z_prev.device)
 
         # [*, S_c, N, C_m]
         m += m_1_prev_emb
@@ -214,31 +205,18 @@ class AlphaFold(nn.Module):
         del m_1_prev, z_prev, m_1_prev_emb, z_prev_emb
 
         # Run MSA + pair embeddings through the trunk of the network
-        # m: [*, S, N, C_m]
+        # m: [*, N, C_m]
         # z: [*, N, N, C_z]
-        # s: [*, N, C_s]          
-        if self.globals.offload_inference:
-            input_tensors = [m, z]
-            del m, z
-            m, z, s = self.evoformer._forward_offload(
-                input_tensors,
-                msa_mask=protein_lig_msa_mask.to(dtype=input_tensors[0].dtype),
-                pair_mask=pair_mask.to(dtype=input_tensors[1].dtype),
-                use_lma=self.globals.use_lma,
-                _mask_trans=self.config._mask_trans,
-            )
-
-            del input_tensors
-        else:
-            m, z, s = self.evoformer(
-                m,
-                z,
-                msa_mask=protein_lig_msa_mask.to(dtype=m.dtype),
-                pair_mask=pair_mask.to(dtype=z.dtype),
-                use_lma=self.globals.use_lma,
-                inplace_safe=inplace_safe,
-                _mask_trans=self.config._mask_trans,
-            )
+        # s: [*, N, C_s]
+        m, z, s = self.evoformer(
+            m,
+            z,
+            msa_mask=protein_lig_msa_mask.to(dtype=m.dtype),
+            pair_mask=pair_mask.to(dtype=z.dtype),
+            use_lma=self.globals.use_lma,
+            inplace_safe=inplace_safe,
+            _mask_trans=self.config._mask_trans,
+        )
 
         outputs["msa"] = m[..., :1, :, :]
         outputs["pair"] = z
@@ -257,7 +235,6 @@ class AlphaFold(nn.Module):
             ligand_start_ind=n_res,
             mask=protein_lig_seq_mask.to(dtype=s.dtype),
             inplace_safe=inplace_safe,
-            _offload_inference=self.globals.offload_inference,
         )
         outputs["final_atom_positions"] = atom14_to_atom37(
             outputs["sm"]["positions"][-1], feats

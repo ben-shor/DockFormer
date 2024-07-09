@@ -285,8 +285,6 @@ class InvariantPointAttention(nn.Module):
         r: Union[Rigid, Rigid3Array],
         mask: torch.Tensor,
         inplace_safe: bool = False,
-        _offload_inference: bool = False,
-        _z_reference_list: Optional[Sequence[torch.Tensor]] = None,
     ) -> torch.Tensor:
         """
         Args:
@@ -301,10 +299,7 @@ class InvariantPointAttention(nn.Module):
         Returns:
             [*, N_res, C_s] single representation update
         """
-        if (_offload_inference and inplace_safe):
-            z = _z_reference_list
-        else:
-            z = [z]
+        z = [z]
 
         #######################################
         # Generate scalar and point activations
@@ -342,10 +337,6 @@ class InvariantPointAttention(nn.Module):
         ##########################
         # [*, N_res, N_res, H]
         b = self.linear_b(z[0])
-
-        if (_offload_inference):
-            assert (sys.getrefcount(z[0]) == 2)
-            z[0] = z[0].cpu()
 
         # [*, H, N_res, N_res]
         if (is_fp16_enabled()):
@@ -450,9 +441,6 @@ class InvariantPointAttention(nn.Module):
         # [*, N_res, H * P_v, 3]
         o_pt = o_pt.reshape(*o_pt.shape[:-3], -1, 3)
         o_pt = torch.unbind(o_pt, dim=-1)
-
-        if (_offload_inference):
-            z[0] = z[0].to(o_pt.device)
 
         # [*, N_res, H, C_z]
         o_pair = torch.matmul(a.transpose(-2, -3), z[0].to(dtype=a.dtype))
@@ -671,7 +659,6 @@ class StructureModule(nn.Module):
         ligand_start_ind: int,
         mask=None,
         inplace_safe=False,
-        _offload_inference=False,
     ):
         """
         Args:
@@ -700,13 +687,6 @@ class StructureModule(nn.Module):
         # [*, N, N, C_z]
         z = self.layer_norm_z(evoformer_output_dict["pair"])
 
-        z_reference_list = None
-        if (_offload_inference):
-            assert (sys.getrefcount(evoformer_output_dict["pair"]) == 2)
-            evoformer_output_dict["pair"] = evoformer_output_dict["pair"].cpu()
-            z_reference_list = [z]
-            z = None
-
         # [*, N, C_s]
         s_initial = s
         s = self.linear_in(s)
@@ -728,8 +708,6 @@ class StructureModule(nn.Module):
                 combined_rigids,
                 mask, 
                 inplace_safe=inplace_safe,
-                _offload_inference=_offload_inference, 
-                _z_reference_list=z_reference_list
             )
             s = self.ipa_dropout(s)
             s = self.layer_norm_ipa(s)
@@ -798,12 +776,7 @@ class StructureModule(nn.Module):
 
             combined_rigids = combined_rigids.stop_rot_gradient()
 
-        del z, z_reference_list
-
-        if (_offload_inference):
-            evoformer_output_dict["pair"] = (
-                evoformer_output_dict["pair"].to(s.device)
-            )
+        del z
 
         outputs = dict_multimap(torch.stack, outputs)
         outputs["single"] = s

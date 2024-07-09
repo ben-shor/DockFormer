@@ -71,7 +71,7 @@ def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_re
         ckpt_path = get_latest_checkpoint(os.path.join(run_config["train_output_dir"], "checkpoint"))
     print("Using checkpoint: ", ckpt_path)
 
-    config = model_config(config_preset, long_sequence_inference=False)
+    config = model_config(config_preset)
     config = override_config(config, run_config.get("override_conf", {}))
 
     model_generator = load_models_from_command_line(

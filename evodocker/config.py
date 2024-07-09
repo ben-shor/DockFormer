@@ -8,7 +8,6 @@ def model_config(
     name, 
     train=False, 
     low_prec=False, 
-    long_sequence_inference=False
 ):
     c = copy.deepcopy(config)
     # TRAINING PRESETS
@@ -25,18 +24,12 @@ def model_config(
     else:
         raise ValueError("Invalid model name")
 
-    if long_sequence_inference:
-        assert(not train)
-        c.globals.offload_inference = True
-
     c.globals.use_lma = False
-    c.globals.offload_inference = False
-    
+
     if train:
         c.globals.blocks_per_ckpt = 1
         c.globals.use_lma = False
-        c.globals.offload_inference = False
-    
+
     if low_prec:
         c.globals.eps = 1e-4
         # If we want exact numerical parity with the original, inf can't be
@@ -155,7 +148,6 @@ config = mlc.ConfigDict(
             "blocks_per_ckpt": blocks_per_ckpt,
             # Use Staats & Rabe's low-memory attention algorithm.
             "use_lma": False,
-            "offload_inference": False,
             "max_lr": 1e-3,
             "c_z": c_z,
             "c_m": c_m,
