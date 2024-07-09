@@ -247,7 +247,6 @@ class ModelWrapper(pl.LightningModule):
         if learning_rate is None:
             learning_rate = self.config.globals.max_lr
 
-        # Ignored as long as a DeepSpeed optimizer is configured
         optimizer = torch.optim.Adam(
             self.model.parameters(), 
             lr=learning_rate, 
@@ -310,6 +309,7 @@ def train(override_config_path: str):
 
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device_name = "cuda" if torch.cuda.is_available() else "cpu"
+    device_name = "mps" if device_name == "cpu" and torch.backends.mps.is_available() else device_name
     model_module = ModelWrapper(config)
 
     # for debugging memory:

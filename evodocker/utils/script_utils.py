@@ -7,7 +7,6 @@ from typing import List, Tuple
 
 import numpy
 import torch
-from lightning.pytorch.utilities.deepspeed import convert_zero_checkpoint_to_fp32_state_dict
 from rdkit import Chem
 
 from evodocker.model.model import AlphaFold
@@ -66,28 +65,14 @@ def load_models_from_command_line(config, model_device, model_checkpoint_path, o
             model = AlphaFold(config)
             model = model.eval()
             checkpoint_basename = get_model_basename(path)
-            if os.path.isdir(path):
-                # A DeepSpeed checkpoint
-                ckpt_path = os.path.join(
-                    output_dir,
-                    checkpoint_basename + ".pt",
-                )
+            assert os.path.isfile(path), f"Model checkpoint not found at {path}"
+            ckpt_path = path
+            d = torch.load(ckpt_path)
 
-                if not os.path.isfile(ckpt_path):
-                    convert_zero_checkpoint_to_fp32_state_dict(
-                        path,
-                        ckpt_path,
-                    )
-                d = torch.load(ckpt_path)
-                model.load_state_dict(d["ema"]["params"])
-            else:
-                ckpt_path = path
-                d = torch.load(ckpt_path)
-
-                if "ema" in d:
-                    # The public weights have had this done to them already
-                    d = d["ema"]["params"]
-                model.load_state_dict(d)
+            if "ema" in d:
+                # The public weights have had this done to them already
+                d = d["ema"]["params"]
+            model.load_state_dict(d)
 
 
             model = model.to(model_device)

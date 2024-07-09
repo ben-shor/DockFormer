@@ -16,6 +16,7 @@ from functools import partial
 import math
 import torch
 import torch.nn as nn
+import torch.utils.checkpoint
 from typing import Optional, List, Tuple
 
 from evodocker.model.primitives import (
@@ -25,7 +26,6 @@ from evodocker.model.primitives import (
     GlobalAttention, 
     _attention_chunked_trainable,
 )
-from evodocker.utils.checkpointing import get_checkpoint_fn
 from evodocker.utils.chunk_utils import chunk_layer
 from evodocker.utils.tensor_utils import (
     permute_final_dims,
@@ -92,7 +92,6 @@ class MSAAttention(nn.Module):
         biases: Optional[List[torch.Tensor]],
         chunk_size: int,
         use_memory_efficient_kernel: bool,
-        use_deepspeed_evo_attention: bool,
         use_lma: bool,
         use_flash: bool,
         flash_mask: Optional[torch.Tensor],
@@ -104,7 +103,6 @@ class MSAAttention(nn.Module):
                 kv_x=m, 
                 biases=biases,
                 use_memory_efficient_kernel=use_memory_efficient_kernel,
-                use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                 use_lma=use_lma,
                 use_flash=use_flash,
                 flash_mask=flash_mask,
@@ -189,10 +187,8 @@ class MSAAttention(nn.Module):
             q, k, v = self.mha._prep_qkv(m, m)
             return m, q, k, v, mask_bias, z
 
-        checkpoint_fn = get_checkpoint_fn()
-
         if(torch.is_grad_enabled() and checkpoint):
-            m, q, k, v, mask_bias, z = checkpoint_fn(_get_qkv, m, z)
+            m, q, k, v, mask_bias, z = torch.utils.checkpoint.checkpoint(_get_qkv, m, z)
         else:
             m, q, k, v, mask_bias, z = _get_qkv(m, z)
        
@@ -220,7 +216,6 @@ class MSAAttention(nn.Module):
         mask: Optional[torch.Tensor] = None, 
         chunk_size: Optional[int] = None,
         use_memory_efficient_kernel: bool = False,
-        use_deepspeed_evo_attention: bool = False,
         use_lma: bool = False,
         use_flash: bool = False,
         inplace_safe: bool = False,
@@ -268,7 +263,6 @@ class MSAAttention(nn.Module):
                 biases, 
                 chunk_size,
                 use_memory_efficient_kernel=use_memory_efficient_kernel,
-                use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                 use_lma=use_lma,
                 use_flash=use_flash,
                 flash_mask=mask,
@@ -280,7 +274,6 @@ class MSAAttention(nn.Module):
                 kv_x=m, 
                 biases=biases,
                 use_memory_efficient_kernel=use_memory_efficient_kernel,
-                use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                 use_lma=use_lma,
                 use_flash=use_flash,
                 flash_mask=mask,

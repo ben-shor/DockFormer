@@ -225,7 +225,6 @@ class AlphaFold(nn.Module):
                 msa_mask=protein_lig_msa_mask.to(dtype=input_tensors[0].dtype),
                 pair_mask=pair_mask.to(dtype=input_tensors[1].dtype),
                 chunk_size=self.globals.chunk_size,
-                use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention,
                 use_lma=self.globals.use_lma,
                 _mask_trans=self.config._mask_trans,
             )
@@ -238,7 +237,6 @@ class AlphaFold(nn.Module):
                 msa_mask=protein_lig_msa_mask.to(dtype=m.dtype),
                 pair_mask=pair_mask.to(dtype=z.dtype),
                 chunk_size=self.globals.chunk_size,
-                use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention,
                 use_lma=self.globals.use_lma,
                 use_flash=self.globals.use_flash,
                 inplace_safe=inplace_safe,

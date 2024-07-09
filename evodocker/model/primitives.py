@@ -17,14 +17,6 @@ import math
 from typing import Optional, Callable, List, Tuple
 import numpy as np
 
-deepspeed_is_installed = importlib.util.find_spec("deepspeed") is not None
-ds4s_is_installed = deepspeed_is_installed and importlib.util.find_spec("deepspeed.ops.deepspeed4science") is not None
-if deepspeed_is_installed:
-    import deepspeed
-
-if ds4s_is_installed:
-    from deepspeed.ops.deepspeed4science import DS4Sci_EvoformerAttention
-
 fa_is_installed = importlib.util.find_spec("flash_attn") is not None
 if fa_is_installed:
     from flash_attn.bert_padding import unpad_input
@@ -32,9 +24,9 @@ if fa_is_installed:
 
 import torch
 import torch.nn as nn
+import torch.utils.checkpoint
 from scipy.stats import truncnorm
 
-from evodocker.utils.checkpointing import get_checkpoint_fn
 from evodocker.utils.kernel.attention_core import attention_core
 from evodocker.utils.precision_utils import is_fp16_enabled
 from evodocker.utils.tensor_utils import (
@@ -187,10 +179,6 @@ class Linear(nn.Linear):
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         d = input.dtype
-        deepspeed_is_initialized = (
-                deepspeed_is_installed and
-                deepspeed.comm.comm.is_initialized()
-        )
         if self.precision is not None:
             with torch.cuda.amp.autocast(enabled=False):
                 bias = self.bias.to(dtype=self.precision) if self.bias is not None else None
@@ -198,7 +186,7 @@ class Linear(nn.Linear):
                                             self.weight.to(dtype=self.precision),
                                             bias).to(dtype=d)
 
-        if d is torch.bfloat16 and not deepspeed_is_initialized:
+        if d is torch.bfloat16:
             with torch.cuda.amp.autocast(enabled=False):
                 bias = self.bias.to(dtype=d) if self.bias is not None else None
                 return nn.functional.linear(input, self.weight.to(dtype=d), bias)
@@ -218,11 +206,7 @@ class LayerNorm(nn.Module):
 
     def forward(self, x): 
         d = x.dtype
-        deepspeed_is_initialized = (
-            deepspeed_is_installed and 
-            deepspeed.comm.comm.is_initialized()
-        )
-        if d is torch.bfloat16 and not deepspeed_is_initialized:
+        if d is torch.bfloat16:
             with torch.cuda.amp.autocast(enabled=False):
                 out = nn.functional.layer_norm(
                     x, 
@@ -250,11 +234,7 @@ def softmax_no_cast(t: torch.Tensor, dim: int = -1) -> torch.Tensor:
         type bfloat16
     """
     d = t.dtype
-    deepspeed_is_initialized = (
-        deepspeed_is_installed and 
-        deepspeed.comm.comm.is_initialized()
-    )
-    if d is torch.bfloat16 and not deepspeed_is_initialized:
+    if d is torch.bfloat16:
         with torch.cuda.amp.autocast(enabled=False):
             s = torch.nn.functional.softmax(t, dim=dim)
     else:
@@ -320,7 +300,7 @@ def _attention_chunked_trainable(
                 for b in (biases + [None, None])[:2]
             ]
 
-            o_chunk = checkpoint_fn(_checkpointable_attention,
+            o_chunk = torch.utils.checkpoint.checkpoint(_checkpointable_attention,
                 q_chunk, k_chunk, v_chunk, bias_1_chunk, bias_2_chunk
             )
         else:
@@ -451,7 +431,6 @@ class Attention(nn.Module):
         kv_x: torch.Tensor,
         biases: Optional[List[torch.Tensor]] = None,
         use_memory_efficient_kernel: bool = False,
-        use_deepspeed_evo_attention: bool = False,
         use_lma: bool = False,
         lma_q_chunk_size: int = DEFAULT_LMA_Q_CHUNK_SIZE,
         lma_kv_chunk_size: int = DEFAULT_LMA_KV_CHUNK_SIZE,
@@ -471,10 +450,6 @@ class Attention(nn.Module):
                 This should be the default choice for most. If none of the
                 "use_<...>" flags are True, a stock PyTorch implementation
                 is used instead
-            use_deepspeed_evo_attention:
-                Whether to use DeepSpeed memory-efficient attention kernel.
-                If none of the "use_<...>" flags are True, a stock PyTorch
-                implementation is used instead
             use_lma:
                 Whether to use low-memory attention (Staats & Rabe 2021). If
                 none of the "use_<...>" flags are True, a stock PyTorch 
@@ -498,7 +473,7 @@ class Attention(nn.Module):
                 "use flash_mask instead"
             )
 
-        attn_options = [use_memory_efficient_kernel, use_deepspeed_evo_attention, use_lma, use_flash]
+        attn_options = [use_memory_efficient_kernel, use_lma, use_flash]
         if sum(attn_options) > 1:
             raise ValueError(
                 "Choose at most one alternative attention algorithm"
@@ -507,9 +482,7 @@ class Attention(nn.Module):
         if biases is None:
             biases = []
         
-        # DeepSpeed attention kernel applies scaling internally
-        q, k, v = self._prep_qkv(q_x, kv_x,
-                                 apply_scale=not use_deepspeed_evo_attention)
+        q, k, v = self._prep_qkv(q_x, kv_x, apply_scale=True)
 
         if is_fp16_enabled():
             use_memory_efficient_kernel = False
@@ -522,13 +495,6 @@ class Attention(nn.Module):
                 )
             o = attention_core(q, k, v, *((biases + [None] * 2)[:2]))
             o = o.transpose(-2, -3)
-        elif use_deepspeed_evo_attention:
-            if len(biases) > 2:
-                raise ValueError(
-                    "If use_deepspeed_evo_attention is True, you may only "
-                    "provide up to two bias terms"
-                )
-            o = _deepspeed_evo_attn(q, k, v, biases)
         elif use_lma:
             biases = [
                 b.expand(b.shape[:-2] + (q_x.shape[-2],) + (kv_x.shape[-2],)) 
@@ -634,72 +600,6 @@ class GlobalAttention(nn.Module):
         m = self.linear_o(o)
 
         return m
-
-
-@torch.jit.ignore
-def _deepspeed_evo_attn(
-    q: torch.Tensor,
-    k: torch.Tensor,
-    v: torch.Tensor,
-    biases: List[torch.Tensor],
-):
-    """""
-    Compute attention using the DeepSpeed DS4Sci_EvoformerAttention kernel.
-
-    Args:
-        q:
-            [*, H, Q, C_hidden] query data
-        k:
-            [*, H, K, C_hidden] key data
-        v:
-            [*, H, V, C_hidden] value data
-        biases:
-            List of biases that broadcast to [*, H, Q, K]
-    """
-
-    if not ds4s_is_installed:
-        raise ValueError(
-            "_deepspeed_evo_attn requires that DeepSpeed be installed "
-            "and that the deepspeed.ops.deepspeed4science package exists"
-        )
-
-    def reshape_dims(x):
-        no_batch_dims = len(x.shape[:-3])
-        if no_batch_dims < 2:
-            return x.reshape(*((1,) * (2 - no_batch_dims) + x.shape))
-        if no_batch_dims > 2:
-            return x.reshape(*((x.shape[0], -1) + x.shape[-3:]))
-        return x
-
-    # [*, Q/K, H, C_hidden]
-    q = q.transpose(-2, -3)
-    k = k.transpose(-2, -3)
-    v = v.transpose(-2, -3)
-
-    # Reshape tensors to match expected input shape [B, N, Q/K, H, C_hidden]
-    # for DS4Sci_EvoformerAttention() by adding or flattening batch dims as needed.
-    orig_shape = q.shape
-    if len(orig_shape[:-3]) != 2:
-        q = reshape_dims(q)
-        k = reshape_dims(k)
-        v = reshape_dims(v)
-        biases = [reshape_dims(b) for b in biases]
-
-    # DeepSpeed attn. kernel requires inputs to be type bf16 or fp16
-    # Cast to bf16 so kernel can be used during inference
-    orig_dtype = q.dtype
-    if orig_dtype not in [torch.bfloat16, torch.float16]:
-        o = DS4Sci_EvoformerAttention(q.to(dtype=torch.bfloat16),
-                                      k.to(dtype=torch.bfloat16),
-                                      v.to(dtype=torch.bfloat16),
-                                      [b.to(dtype=torch.bfloat16) for b in biases])
-
-        o = o.to(dtype=orig_dtype)
-    else:
-        o = DS4Sci_EvoformerAttention(q, k, v, biases)
-
-    o = o.reshape(orig_shape)
-    return o
 
 
 def _lma(
