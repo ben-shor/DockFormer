@@ -133,15 +133,12 @@ class MSAAttention(nn.Module):
         mask: Optional[torch.Tensor],
         inplace_safe: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: 
-        n_seq, n_res = m.shape[-3:-1]
         if mask is None:
-            # [*, N_seq, N_res]
-            mask = m.new_ones(
-                m.shape[:-3] + (n_seq, n_res),
-            )
+            # [*, N_res]
+            mask = m.new_ones(m.shape[:-1])
 
         # [*, N_seq, 1, 1, N_res]
-        mask_bias = (self.inf * (mask - 1))[..., :, None, None, :]
+        mask_bias = (self.inf * (mask - 1))[..., :, None, :]
 
         if (self.pair_bias and 
             z is not None and                       # For the 
@@ -163,8 +160,8 @@ class MSAAttention(nn.Module):
             
             z = torch.cat(chunks, dim=-3)
             
-            # [*, 1, no_heads, N_res, N_res]
-            z = permute_final_dims(z, (2, 0, 1)).unsqueeze(-4)
+            # [*, no_heads, N_res, N_res]
+            z = permute_final_dims(z, (2, 0, 1))
 
         return m, mask_bias, z
 

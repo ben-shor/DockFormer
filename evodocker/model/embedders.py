@@ -186,19 +186,8 @@ class StructureInputEmbedder(nn.Module):
         device = protein_target_feat.device
 
         # Single representation embedding - Algorithm 3
-        # [*, N_clust, N_res, c_m]
-        n_clust = 1  # msa.shape[-3]
-        protein_tf_m = (
-            self.protein_linear_tf_m(protein_target_feat)
-            .unsqueeze(-3)
-            .expand(((-1,) * len(protein_target_feat.shape[:-2]) + (n_clust, -1, -1)))
-        )
-
-        ligand_tf_m = (
-            self.ligand_linear_tf_m(ligand_target_feat)
-            .unsqueeze(-3)
-            .expand(((-1,) * len(ligand_target_feat.shape[:-2]) + (n_clust, -1, -1)))
-        )
+        protein_tf_m = self.protein_linear_tf_m(protein_target_feat)
+        ligand_tf_m = self.ligand_linear_tf_m(ligand_target_feat)
 
         # Pair representation
         # protein pair embedding - Algorithm 3

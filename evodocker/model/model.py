@@ -203,7 +203,7 @@ class AlphaFold(nn.Module):
             z = z.to(z_prev.device)
 
         # [*, S_c, N, C_m]
-        m[..., 0, :, :] += m_1_prev_emb
+        m += m_1_prev_emb
 
         # [*, N, N, C_z]
         z = add(z, z_prev_emb, inplace=inplace_safe)

@@ -26,7 +26,7 @@ dependencies:
   - git
 #  - pytorch::pytorch=2.3.0
   - pip:
-      - torch --index-url https://download.pytorch.org/whl/cu118
+      - torch==2.3.0 --index-url https://download.pytorch.org/whl/cu118
       - deepspeed==0.12.4
       - dm-tree==0.1.6
       - git+https://github.com/NVIDIA/dllogger.git

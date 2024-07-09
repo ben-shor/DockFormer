@@ -613,7 +613,7 @@ class EvoformerStack(nn.Module):
         
         m, z = input_tensors
         
-        s = self.linear(m[..., 0, :, :])
+        s = self.linear(m)
         
         return m, z, s
 
@@ -682,6 +682,6 @@ class EvoformerStack(nn.Module):
             blocks_per_ckpt=blocks_per_ckpt,
         )
 
-        s = self.linear(m[..., 0, :, :])
+        s = self.linear(m)
 
         return m, z, s
