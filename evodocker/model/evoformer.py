@@ -22,9 +22,8 @@ from abc import ABC, abstractmethod
 
 from evodocker.model.primitives import Linear, LayerNorm
 from evodocker.model.dropout import DropoutRowwise
-from evodocker.model.msa import (
-    MSARowAttentionWithPairBias,
-)
+from evodocker.model.single_attention import SingleRowAttentionWithPairBias
+
 from evodocker.model.pair_transition import PairTransition
 from evodocker.model.triangular_attention import (
     TriangleAttention,
@@ -37,9 +36,9 @@ from evodocker.utils.checkpointing import checkpoint_blocks
 from evodocker.utils.tensor_utils import add
 
 
-class MSATransition(nn.Module):
+class SingleRepTransition(nn.Module):
     """
-    Feed-forward network applied to MSA activations after attention.
+    Feed-forward network applied to single representation activations after attention.
 
     Implements Algorithm 9
     """
@@ -47,12 +46,11 @@ class MSATransition(nn.Module):
         """
         Args:
             c_m:
-                MSA channel dimension
+                channel dimension
             n:
-                Factor multiplied to c_m to obtain the hidden channel
-                dimension
+                Factor multiplied to c_m to obtain the hidden channel dimension
         """
-        super(MSATransition, self).__init__()
+        super(SingleRepTransition, self).__init__()
 
         self.c_m = c_m
         self.n = n
@@ -77,14 +75,14 @@ class MSATransition(nn.Module):
         """
         Args:
             m:
-                [*, N_seq, N_res, C_m] MSA activation
+                [*, N_res, C_m] activation after attention
             mask:
-                [*, N_seq, N_res, C_m] MSA mask
+                [*, N_res, C_m] mask
         Returns:
             m:
-                [*, N_seq, N_res, C_m] MSA activation update
+                [*, N_res, C_m] activation update
         """
-        # DISCREPANCY: DeepMind forgets to apply the MSA mask here.
+        # DISCREPANCY: DeepMind forgets to apply the mask here.
         if mask is None:
             mask = m.new_ones(m.shape[:-1])
 
@@ -218,35 +216,34 @@ class PairStack(nn.Module):
         return z
 
 
-class MSABlock(nn.Module, ABC):
-    @abstractmethod
+class EvoformerBlock(nn.Module, ABC):
     def __init__(self,
         c_m: int,
         c_z: int,
-        c_hidden_msa_att: int,
+        c_hidden_single_att: int,
         c_hidden_mul: int,
         c_hidden_pair_att: int,
-        no_heads_msa: int,
+        no_heads_single: int,
         no_heads_pair: int,
         transition_n: int,
-        msa_dropout: float,
+        single_dropout: float,
         pair_dropout: float,
         inf: float,
         eps: float,
     ):
-        super(MSABlock, self).__init__()
+        super(EvoformerBlock, self).__init__()
 
-        self.msa_att_row = MSARowAttentionWithPairBias(
+        self.single_att_row = SingleRowAttentionWithPairBias(
             c_m=c_m,
             c_z=c_z,
-            c_hidden=c_hidden_msa_att,
-            no_heads=no_heads_msa,
+            c_hidden=c_hidden_single_att,
+            no_heads=no_heads_single,
             inf=inf,
         )
 
-        self.msa_dropout_layer = DropoutRowwise(msa_dropout)
+        self.single_dropout_layer = DropoutRowwise(single_dropout)
 
-        self.msa_transition = MSATransition(
+        self.single_transition = SingleRepTransition(
             c_m=c_m,
             n=transition_n,
         )
@@ -262,58 +259,17 @@ class MSABlock(nn.Module, ABC):
             eps=eps
         )
 
-    @abstractmethod
     def forward(self,
         m: Optional[torch.Tensor],
         z: Optional[torch.Tensor],
-        msa_mask: torch.Tensor,
-        pair_mask: torch.Tensor,
-        use_lma: bool = False,
-        inplace_safe: bool = False,
-        _mask_trans: bool = True,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        pass
-
-
-class EvoformerBlock(MSABlock):
-    def __init__(self,
-        c_m: int,
-        c_z: int,
-        c_hidden_msa_att: int,
-        c_hidden_mul: int,
-        c_hidden_pair_att: int,
-        no_heads_msa: int,
-        no_heads_pair: int,
-        transition_n: int,
-        msa_dropout: float,
-        pair_dropout: float,
-        inf: float,
-        eps: float,
-    ):
-        super(EvoformerBlock, self).__init__(c_m=c_m,
-                                             c_z=c_z,
-                                             c_hidden_msa_att=c_hidden_msa_att,
-                                             c_hidden_mul=c_hidden_mul,
-                                             c_hidden_pair_att=c_hidden_pair_att,
-                                             no_heads_msa=no_heads_msa,
-                                             no_heads_pair=no_heads_pair,
-                                             transition_n=transition_n,
-                                             msa_dropout=msa_dropout,
-                                             pair_dropout=pair_dropout,
-                                             inf=inf,
-                                             eps=eps)
-
-    def forward(self,
-        m: Optional[torch.Tensor],
-        z: Optional[torch.Tensor],
-        msa_mask: torch.Tensor,
+        single_mask: torch.Tensor,
         pair_mask: torch.Tensor,
         use_lma: bool = False,
         inplace_safe: bool = False,
         _mask_trans: bool = True,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
 
-        msa_trans_mask = msa_mask if _mask_trans else None
+        single_trans_mask = single_mask if _mask_trans else None
 
         input_tensors = [m, z]
 
@@ -328,11 +284,11 @@ class EvoformerBlock(MSABlock):
         )
 
         m = add(m,
-                self.msa_dropout_layer(
-                    self.msa_att_row(
+                self.single_dropout_layer(
+                    self.single_att_row(
                         m,
                         z=z,
-                        mask=msa_mask,
+                        mask=single_mask,
                         use_memory_efficient_kernel=False,
                         use_lma=use_lma,
                     )
@@ -340,13 +296,7 @@ class EvoformerBlock(MSABlock):
                 inplace=inplace_safe,
                 )
 
-        m = add(
-            m,
-            self.msa_transition(
-                m, mask=msa_trans_mask
-            ),
-            inplace=inplace_safe,
-        )
+        m = add(m, self.single_transition(m, mask=single_mask), inplace=inplace_safe)
 
         return m, z
 
@@ -362,15 +312,15 @@ class EvoformerStack(nn.Module):
         self,
         c_m: int,
         c_z: int,
-        c_hidden_msa_att: int,
+        c_hidden_single_att: int,
         c_hidden_mul: int,
         c_hidden_pair_att: int,
         c_s: int,
-        no_heads_msa: int,
+        no_heads_single: int,
         no_heads_pair: int,
         no_blocks: int,
         transition_n: int,
-        msa_dropout: float,
+        single_dropout: float,
         pair_dropout: float,
         blocks_per_ckpt: int,
         inf: float,
@@ -381,28 +331,28 @@ class EvoformerStack(nn.Module):
         """
         Args:
             c_m:
-                MSA channel dimension
+                single channel dimension
             c_z:
                 Pair channel dimension
-            c_hidden_msa_att:
-                Hidden dimension in MSA attention
+            c_hidden_single_att:
+                Hidden dimension in single representation attention
             c_hidden_mul:
                 Hidden dimension in multiplicative updates
             c_hidden_pair_att:
                 Hidden dimension in triangular attention
             c_s:
                 Channel dimension of the output "single" embedding
-            no_heads_msa:
-                Number of heads used for MSA attention
+            no_heads_single:
+                Number of heads used for single attention
             no_heads_pair:
                 Number of heads used for pair attention
             no_blocks:
                 Number of Evoformer blocks in the stack
             transition_n:
-                Factor by which to multiply c_m to obtain the MSATransition
+                Factor by which to multiply c_m to obtain the SingleTransition
                 hidden dimension
-            msa_dropout:
-                Dropout rate for MSA activations
+            single_dropout:
+                Dropout rate for single activations
             pair_dropout:
                 Dropout used for pair activations
             blocks_per_ckpt:
@@ -422,13 +372,13 @@ class EvoformerStack(nn.Module):
             block = EvoformerBlock(
                 c_m=c_m,
                 c_z=c_z,
-                c_hidden_msa_att=c_hidden_msa_att,
+                c_hidden_single_att=c_hidden_single_att,
                 c_hidden_mul=c_hidden_mul,
                 c_hidden_pair_att=c_hidden_pair_att,
-                no_heads_msa=no_heads_msa,
+                no_heads_single=no_heads_single,
                 no_heads_pair=no_heads_pair,
                 transition_n=transition_n,
-                msa_dropout=msa_dropout,
+                single_dropout=single_dropout,
                 pair_dropout=pair_dropout,
                 inf=inf,
                 eps=eps,
@@ -437,11 +387,9 @@ class EvoformerStack(nn.Module):
 
         self.linear = Linear(c_m, c_s)
 
-    def _prep_blocks(self, 
-        m: torch.Tensor, 
-        z: torch.Tensor, 
+    def _prep_blocks(self,
         use_lma: bool,
-        msa_mask: Optional[torch.Tensor],
+        single_mask: Optional[torch.Tensor],
         pair_mask: Optional[torch.Tensor],
         inplace_safe: bool,
         _mask_trans: bool,
@@ -449,7 +397,7 @@ class EvoformerStack(nn.Module):
         blocks = [
             partial(
                 b,
-                msa_mask=msa_mask,
+                single_mask=single_mask,
                 pair_mask=pair_mask,
                 use_lma=use_lma,
                 inplace_safe=inplace_safe,
@@ -470,7 +418,7 @@ class EvoformerStack(nn.Module):
     def forward(self,
         m: torch.Tensor,
         z: torch.Tensor,
-        msa_mask: torch.Tensor,
+        single_mask: torch.Tensor,
         pair_mask: torch.Tensor,
         use_lma: bool = False,
         inplace_safe: bool = False,
@@ -479,11 +427,11 @@ class EvoformerStack(nn.Module):
         """
         Args:
             m:
-                [*, N_seq, N_res, C_m] MSA embedding
+                [*, N_res, C_m] single embedding
             z:
                 [*, N_res, N_res, C_z] pair embedding
-            msa_mask:
-                [*, N_seq, N_res] MSA mask
+            single_mask:
+                [*, N_res] single mask
             pair_mask:
                 [*, N_res, N_res] pair mask
             use_lma:
@@ -491,17 +439,15 @@ class EvoformerStack(nn.Module):
 
         Returns:
             m:
-                [*, N_seq, N_res, C_m] MSA embedding
+                [*, N_res, C_m] single embedding
             z:
                 [*, N_res, N_res, C_z] pair embedding
             s:
-                [*, N_res, C_s] single embedding (or None if extra MSA stack)
+                [*, N_res, C_s] single embedding after linear layer
         """ 
         blocks = self._prep_blocks(
-            m=m,
-            z=z,
             use_lma=use_lma,
-            msa_mask=msa_mask,
+            single_mask=single_mask,
             pair_mask=pair_mask,
             inplace_safe=inplace_safe,
             _mask_trans=_mask_trans,

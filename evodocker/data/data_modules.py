@@ -3,10 +3,9 @@ import time
 from collections import Counter
 from functools import partial
 import json
-import logging
 import os
 import pickle
-from typing import Optional, Sequence, Any, Union
+from typing import Optional, Sequence, Any
 
 import ml_collections as mlc
 import lightning as L
@@ -115,15 +114,15 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         n_res = input_protein_feats["protein_target_feat"].shape[0]
         n_lig = ref_ligand_feats["ligand_target_feat"].shape[0]
 
-        protein_lig_seq_mask = torch.cat([input_protein_feats["seq_mask"], torch.ones((n_lig, num_recycles))], dim=0)
-        protein_lig_msa_mask = torch.cat([input_protein_feats["msa_mask"], torch.ones((n_lig, num_recycles))], dim=0)
+        token_mask = torch.ones((n_res + n_lig, num_recycles), dtype=torch.float32)
         ligand_target_feat = ref_ligand_feats["ligand_target_feat"]
         ligand_bonds_feat = ref_ligand_feats["ligand_bonds_feat"]
         ref_ligand_positions = ref_ligand_feats["ligand_positions"]
 
         # add affinity, add additional token
-        protein_lig_seq_mask = torch.cat([protein_lig_seq_mask, torch.ones((1, num_recycles))], dim=0)
-        protein_lig_msa_mask = torch.cat([protein_lig_msa_mask, torch.ones((1, num_recycles))], dim=0)
+        token_mask = torch.ones((n_res + n_lig + 1, num_recycles), dtype=torch.float32)
+        # TODO: this should be same size as token mask but with zeros for ligand, then needs to change loss.py
+        protein_mask = torch.ones((n_res, num_recycles), dtype=torch.float32)
 
         affinity_target_feat = torch.zeros((1, ligand_target_feat.shape[-2]), dtype=torch.float32)
         affinity_target_feat[0, POSSIBLE_ATOM_TYPES.index("[AFFINITY]")] = 1
@@ -141,8 +140,8 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
 
         feats = {
             **input_protein_feats,
-            "protein_lig_seq_mask": protein_lig_seq_mask,
-            "protein_lig_msa_mask": protein_lig_msa_mask,
+            "token_mask": token_mask,
+            "protein_mask": protein_mask,
             "input_pseudo_beta": input_protein_feats["pseudo_beta"],
             "ligand_target_feat": ligand_target_feat,
             "ligand_bonds_feat": ligand_bonds_feat,

@@ -54,7 +54,9 @@ aux_affinity_bins = mlc.FieldReference(32, field_type=int)
 eps = mlc.FieldReference(1e-8, field_type=float)
 
 NUM_RES = "num residues placeholder"
-NUM_MSA_SEQ = "msa placeholder"
+NUM_LIG_ATOMS = "num ligand atoms placeholder"
+NUM_TOKEN = "num tokens placeholder"
+
 
 config = mlc.ConfigDict(
     {
@@ -75,8 +77,6 @@ config = mlc.ConfigDict(
                     "backbone_rigid_tensor": [NUM_RES, None, None],
                     "chi_angles_sin_cos": [NUM_RES, None, None],
                     "chi_mask": [NUM_RES, None],
-                    "msa_feat": [NUM_MSA_SEQ, NUM_RES, None],
-                    "msa_mask": [NUM_MSA_SEQ, NUM_RES],
                     "no_recycling_iters": [],
                     "pseudo_beta": [NUM_RES, None],
                     "pseudo_beta_mask": [NUM_RES],
@@ -90,7 +90,7 @@ config = mlc.ConfigDict(
                     "rigidgroups_gt_exists": [NUM_RES, None],
                     "rigidgroups_gt_frames": [NUM_RES, None, None, None],
                     "seq_length": [],
-                    "seq_mask": [NUM_RES],
+                    "token_mask": [NUM_TOKEN],
                     "protein_target_feat": [NUM_RES, None],
                     "use_clamped_fape": [],
                 },
@@ -98,7 +98,6 @@ config = mlc.ConfigDict(
                 "unsupervised_features": [
                     "aatype",
                     "residue_index",
-                    "msa",
                     "seq_length",
                     "between_segment_residues",
                     "no_recycling_iters",
@@ -185,16 +184,16 @@ config = mlc.ConfigDict(
             "evoformer_stack": {
                 "c_m": c_m,
                 "c_z": c_z,
-                "c_hidden_msa_att": 32,
+                "c_hidden_single_att": 32,
                 "c_hidden_mul": 128,
                 "c_hidden_pair_att": 32,
                 "c_s": c_s,
-                "no_heads_msa": 8,
+                "no_heads_single": 8,
                 "no_heads_pair": 4,
                 # "no_blocks": 48,
                 "no_blocks": 2,
                 "transition_n": 4,
-                "msa_dropout": 0.15,
+                "single_dropout": 0.15,
                 "pair_dropout": 0.25,
                 "blocks_per_ckpt": blocks_per_ckpt,
                 "clear_cache_between_blocks": False,

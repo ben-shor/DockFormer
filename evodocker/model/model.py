@@ -130,11 +130,10 @@ class AlphaFold(nn.Module):
         inplace_safe = False # so we don't need attn_core_inplace_cuda
 
         # Prep some features
-        protein_lig_seq_mask = feats["protein_lig_seq_mask"]
-        protein_lig_msa_mask = feats["protein_lig_msa_mask"]
-        pair_mask = protein_lig_seq_mask[..., None] * protein_lig_seq_mask[..., None, :]
+        token_mask = feats["token_mask"]
+        pair_mask = token_mask[..., None] * token_mask[..., None, :]
 
-        # Initialize the MSA and pair representations
+        # Initialize the single and pair representations
         # m: [*, 1, n_total, C_m]
         # z: [*, n_total, n_total, C_z]
         m, z = self.input_embedder(
@@ -204,21 +203,20 @@ class AlphaFold(nn.Module):
         # that they can be offloaded later
         del m_1_prev, z_prev, m_1_prev_emb, z_prev_emb
 
-        # Run MSA + pair embeddings through the trunk of the network
+        # Run single + pair embeddings through the trunk of the network
         # m: [*, N, C_m]
         # z: [*, N, N, C_z]
         # s: [*, N, C_s]
         m, z, s = self.evoformer(
             m,
             z,
-            msa_mask=protein_lig_msa_mask.to(dtype=m.dtype),
+            single_mask=token_mask.to(dtype=m.dtype),
             pair_mask=pair_mask.to(dtype=z.dtype),
             use_lma=self.globals.use_lma,
             inplace_safe=inplace_safe,
             _mask_trans=self.config._mask_trans,
         )
 
-        outputs["msa"] = m[..., :1, :, :]
         outputs["pair"] = z
         outputs["single"] = s
         outputs["affinity_token"] = s[..., -1:, :]
@@ -233,7 +231,7 @@ class AlphaFold(nn.Module):
             outputs,
             feats["aatype"],
             ligand_start_ind=n_res,
-            mask=protein_lig_seq_mask.to(dtype=s.dtype),
+            mask=token_mask.to(dtype=s.dtype),
             inplace_safe=inplace_safe,
         )
         outputs["final_atom_positions"] = atom14_to_atom37(
@@ -287,14 +285,9 @@ class AlphaFold(nn.Module):
                     "residue_index" ([*, N_res])
                         Tensor whose final dimension consists of
                         consecutive indices from 0 to N_res.
-                    "msa_feat" ([*, N_seq, N_res, C_msa])
-                        MSA features, constructed as in the supplement.
-                        C_msa is config.model.input_embedder.msa_dim.
-                    "seq_mask" ([*, N_res])
-                        1-D sequence mask
-                    "msa_mask" ([*, N_seq, N_res])
-                        MSA mask
-                    "pair_mask" ([*, N_res, N_res])
+                    "token_mask" ([*, N_token])
+                        1-D token mask
+                    "pair_mask" ([*, N_token, N_token])
                         2-D pair mask
         """
         # Initialize recycling embeddings

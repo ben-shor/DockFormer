@@ -116,7 +116,7 @@ def make_pseudo_beta(protein):
 
 @curry1
 def make_target_feat(protein):
-    """Create and concatenate MSA features."""
+    """Create and concatenate protein features."""
     # Whether there is a domain break. Always zero for chains, but keeping for
     # compatibility with domain datasets.
     has_break = torch.clip(
@@ -130,14 +130,6 @@ def make_target_feat(protein):
     ]
 
     protein["protein_target_feat"] = torch.cat(target_feat, dim=-1)
-
-    # TODO bshor: should I use the masks?
-    protein["seq_mask"] = torch.ones(
-        protein["aatype"].shape, dtype=torch.float32
-    )
-    protein["msa_mask"] = torch.ones(
-        protein["aatype"].shape, dtype=torch.float32
-    )
 
     return protein
 

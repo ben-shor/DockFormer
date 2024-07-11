@@ -360,7 +360,7 @@ def supervised_chi_loss(
     angles_sin_cos: torch.Tensor,
     unnormalized_angles_sin_cos: torch.Tensor,
     aatype: torch.Tensor,
-    seq_mask: torch.Tensor,
+    protein_mask: torch.Tensor,
     chi_mask: torch.Tensor,
     chi_angles_sin_cos: torch.Tensor,
     chi_weight: float,
@@ -378,8 +378,8 @@ def supervised_chi_loss(
                 The same angles, but unnormalized
             aatype:
                 [*, N] residue indices
-            seq_mask:
-                [*, N] sequence mask
+            protein_mask:
+                [*, N] protein mask
             chi_mask:
                 [*, N, 7] angle mask
             chi_angles_sin_cos:
@@ -431,7 +431,7 @@ def supervised_chi_loss(
         *range(len(norm_error.shape))[1:-2], 0, -2, -1
     )
     angle_norm_loss = masked_mean(
-        seq_mask[..., None, :, None], norm_error, dim=(-1, -2, -3)
+        protein_mask[..., None, :, None], norm_error, dim=(-1, -2, -3)
     )
 
     loss = loss + angle_norm_weight * angle_norm_loss
@@ -1463,14 +1463,14 @@ def compute_violation_metrics(
     )
     ret["violations_extreme_ca_ca_distance"] = extreme_ca_ca_violations
     ret["violations_between_residue_bond"] = masked_mean(
-        batch["seq_mask"],
+        batch["token_mask"],
         violations["between_residues"][
             "connections_per_residue_violation_mask"
         ],
         dim=-1,
     )
     ret["violations_between_residue_clash"] = masked_mean(
-        mask=batch["seq_mask"],
+        mask=batch["token_mask"],
         value=torch.max(
             violations["between_residues"]["clashes_per_atom_clash_mask"],
             dim=-1,
@@ -1478,14 +1478,14 @@ def compute_violation_metrics(
         dim=-1,
     )
     ret["violations_within_residue"] = masked_mean(
-        mask=batch["seq_mask"],
+        mask=batch["token_mask"],
         value=torch.max(
             violations["within_residues"]["per_atom_violations"], dim=-1
         )[0],
         dim=-1,
     )
     ret["violations_per_residue"] = masked_mean(
-        mask=batch["seq_mask"],
+        mask=batch["token_mask"],
         value=violations["total_per_residue_violations_mask"],
         dim=-1,
     )

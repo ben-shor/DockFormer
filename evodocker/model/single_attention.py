@@ -27,7 +27,7 @@ from evodocker.model.primitives import (
 from evodocker.utils.tensor_utils import permute_final_dims
 
 
-class MSAAttention(nn.Module):
+class SingleAttention(nn.Module):
     def __init__(
         self,
         c_in,
@@ -53,7 +53,7 @@ class MSAAttention(nn.Module):
             inf:
                 A large number to be used in computing the attention mask
         """
-        super(MSAAttention, self).__init__()
+        super(SingleAttention, self).__init__()
 
         self.c_in = c_in
         self.c_hidden = c_hidden
@@ -90,7 +90,7 @@ class MSAAttention(nn.Module):
             # [*, N_res]
             mask = m.new_ones(m.shape[:-1])
 
-        # [*, N_seq, 1, 1, N_res]
+        # [*, 1, 1, N_res]
         mask_bias = (self.inf * (mask - 1))[..., :, None, :]
 
         if (self.pair_bias and 
@@ -129,12 +129,11 @@ class MSAAttention(nn.Module):
         """
         Args:
             m:
-                [*, N_seq, N_res, C_m] MSA embedding
+                [*, N_res, C_m] single embedding
             z:
-                [*, N_res, N_res, C_z] pair embedding. Required only if
-                pair_bias is True
+                [*, N_res, N_res, C_z] pair embedding. Required only if pair_bias is True
             mask:
-                [*, N_seq, N_res] MSA mask
+                [*, N_res] single mask
         """
         m, mask_bias, z = self._prep_inputs(
             m, z, mask, inplace_safe=inplace_safe
@@ -156,7 +155,7 @@ class MSAAttention(nn.Module):
         return m
 
 
-class MSARowAttentionWithPairBias(MSAAttention):
+class SingleRowAttentionWithPairBias(SingleAttention):
     """
     Implements Algorithm 7.
     """
@@ -175,7 +174,7 @@ class MSARowAttentionWithPairBias(MSAAttention):
             inf:
                 Large number used to construct attention masks
         """
-        super(MSARowAttentionWithPairBias, self).__init__(
+        super(SingleRowAttentionWithPairBias, self).__init__(
             c_m,
             c_hidden,
             no_heads,

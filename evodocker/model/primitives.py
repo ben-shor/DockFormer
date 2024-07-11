@@ -485,7 +485,7 @@ class GlobalAttention(nn.Module):
         # [*, N_res, H, C_hidden]
         q = q.view(q.shape[:-1] + (self.no_heads, -1))
 
-        # [*, N_res, N_seq, C_hidden]
+        # [*, N_res, C_hidden]
         k = self.linear_k(m)
         v = self.linear_v(m)
 
@@ -514,19 +514,19 @@ class GlobalAttention(nn.Module):
                 DEFAULT_LMA_KV_CHUNK_SIZE
             )
 
-        # [*, N_res, N_seq, C_hidden]
+        # [*, N_res, C_hidden]
         g = self.sigmoid(self.linear_g(m))
 
-        # [*, N_res, N_seq, H, C_hidden]
+        # [*, N_res, H, C_hidden]
         g = g.view(g.shape[:-1] + (self.no_heads, -1))
 
-        # [*, N_res, N_seq, H, C_hidden]
+        # [*, N_res, H, C_hidden]
         o = o.unsqueeze(-3) * g
 
-        # [*, N_res, N_seq, H * C_hidden]
+        # [*, N_res, H * C_hidden]
         o = o.reshape(o.shape[:-2] + (-1,))
 
-        # [*, N_res, N_seq, C_in]
+        # [*, N_res, C_in]
         m = self.linear_o(o)
 
         return m

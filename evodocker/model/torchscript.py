@@ -21,9 +21,7 @@ from evodocker.model.evoformer import (
     EvoformerBlock,
     EvoformerStack,
 )
-from evodocker.model.msa import (
-    MSARowAttentionWithPairBias, 
-)
+from evodocker.model.single_attention import SingleRowAttentionWithPairBias
 from evodocker.model.primitives import Attention, GlobalAttention
 
 
@@ -85,7 +83,7 @@ def _trace_module(module, batch_dims=None):
             device=device,
         )
 
-    if(isinstance(module, MSARowAttentionWithPairBias)):
+    if(isinstance(module, SingleRowAttentionWithPairBias)):
         inputs = {
             "forward": (
                 msa(module.c_in), # m

@@ -54,7 +54,7 @@ class StructureInputEmbedder(nn.Module):
             c_z:
                 Pair embedding dimension
             c_m:
-                MSA embedding dimension
+                Single embedding dimension
             relpos_k:
                 Window size used in relative positional encoding
         """
@@ -174,8 +174,8 @@ class StructureInputEmbedder(nn.Module):
                 ligand_bonds_feat:
                     [*, N_lig_atoms, N_lig_atoms, tf_dim] ligand bonds features
         Returns:
-            msa_emb:
-                [*, N_clust, N_res + N_lig_atoms, C_m] MSA embedding
+            single_emb:
+                [*, N_res + N_lig_atoms, C_m] single embedding
             pair_emb:
                 [*, N_res + N_lig_atoms, N_res + N_lig_atoms, C_z] pair embedding
 
@@ -262,7 +262,7 @@ class RecyclingEmbedder(nn.Module):
         """
         Args:
             c_m:
-                MSA channel dimension
+                Single channel dimension
             c_z:
                 Pair embedding channel dimension
             min_bin:
@@ -295,14 +295,14 @@ class RecyclingEmbedder(nn.Module):
         """
         Args:
             m:
-                First row of the MSA embedding. [*, N_res, C_m]
+                First row of the single embedding. [*, N_res, C_m]
             z:
                 [*, N_res, N_res, C_z] pair embedding
             x:
                 [*, N_res, 3] predicted C_beta coordinates
         Returns:
             m:
-                [*, N_res, C_m] MSA embedding update
+                [*, N_res, C_m] single embedding update
             z:
                 [*, N_res, N_res, C_z] pair embedding update
         """
