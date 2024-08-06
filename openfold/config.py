@@ -25,20 +25,16 @@ def model_config(
     else:
         raise ValueError("Invalid model name")
 
-    if long_sequence_inference:
-        assert(not train)
-        c.globals.offload_inference = True
-        # Default to DeepSpeed memory-efficient attention kernel unless use_lma is explicitly set
-        c.globals.use_deepspeed_evo_attention = True if not c.globals.use_lma else False
-        c.globals.use_flash = False
-        c.model.evoformer_stack.tune_chunk_size = False
-
     # TODO bshor: added this because tuning stuck. why is this needed? what is this tuning?
     c.model.evoformer_stack.tune_chunk_size = False
     c.globals.chunk_size = None
     c.globals.use_lma = False
     c.globals.offload_inference = False
-    
+
+    if long_sequence_inference:
+        assert(not train)
+        c.globals.use_lma = True
+
     if train:
         c.globals.blocks_per_ckpt = 1
         c.globals.chunk_size = None
