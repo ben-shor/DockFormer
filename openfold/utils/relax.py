@@ -1,6 +1,7 @@
 import sys
 import os.path
 import time
+from random import shuffle
 
 import numpy as np
 import pdbfixer
@@ -255,7 +256,9 @@ def relax_complex(protein_pdb_path: str, ligand_sdf_path: str, relaxed_protein_p
 
 def relax_folder(folder_path: str):
     all_jobnames = []
-    for filename in os.listdir(folder_path):
+    filenames = os.listdir(folder_path)
+    shuffle(filenames)
+    for filename in filenames:
         if filename.endswith("_predicted_protein.pdb"):
             jobname = filename.split("_predicted_protein.pdb")[0]
             ligand_path = os.path.join(folder_path, jobname + "_predicted_ligand.sdf")

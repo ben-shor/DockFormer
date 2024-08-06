@@ -86,7 +86,10 @@ def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_re
     for i, processed_feature_dict in enumerate(dataset):
         tag = dataset.get_metadata_for_idx(i)["input_name"]
         output_name = f"{tag}_predicted"
-
+        protein_output_path = os.path.join(output_directory, f'{output_name}_protein.pdb')
+        if os.path.exists(protein_output_path):
+            print("skipping exists", output_name)
+            continue
         # turn into a batch of size 1
         processed_feature_dict = {key: value.unsqueeze(0).to(device_name)
                                   for key, value in processed_feature_dict.items()}
@@ -110,9 +113,12 @@ def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_re
         predicted_contacts = torch.sigmoid(torch.tensor(out["inter_contact_logits"])) * 100
         binding_site = torch.max(predicted_contacts, dim=2).values.flatten()
 
-        protein_output_path = os.path.join(output_directory, f'{output_name}_protein.pdb')
         protein_binding_output_path = os.path.join(output_directory, f'{output_name}_protein_affinity.pdb')
         ligand_output_path = os.path.join(output_directory, f'{output_name}_ligand.sdf')
+
+        ligand_positions = out["sm"]["ligand_atom_positions"][-1][0]
+        # remove affinity token
+        ligand_positions = ligand_positions[:-1]
 
         save_output_structure(
             aatype=processed_feature_dict["aatype"][0],
@@ -124,7 +130,7 @@ def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_re
             ligand_chiralities=processed_feature_dict["ligand_chirality"][0][0],
             ligand_charges=processed_feature_dict["ligand_charge"][0][0],
             ligand_bonds=processed_feature_dict["ligand_bonds"][0][0],
-            final_ligand_atom_positions=out["sm"]["ligand_atom_positions"][-1][0],
+            final_ligand_atom_positions=ligand_positions,
             protein_output_path=protein_output_path,
             ligand_output_path=ligand_output_path,
             protein_affinity_output_path=protein_binding_output_path,
@@ -158,4 +164,8 @@ def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_re
 
 if __name__ == "__main__":
     config_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "run_config.json")
-    run_on_folder(TEST_INPUT_DIR, TEST_OUTPUT_DIR, config_path)
+    input_dir, output_dir = TEST_INPUT_DIR, TEST_OUTPUT_DIR
+    if len(sys.argv) > 3:
+        input_dir = sys.argv[2]
+        output_dir = sys.argv[3]
+    run_on_folder(input_dir, output_dir, config_path)
