@@ -59,7 +59,8 @@ def override_config(base_config, overriding_config):
     return base_config
 
 
-def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_relaxation=True):
+def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_relaxation=True,
+                  long_sequence_inference=False):
     config_preset = "initial_training"
     save_outputs = False
     device_name = "cuda" if torch.cuda.is_available() else "cpu"
@@ -71,7 +72,7 @@ def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_re
         ckpt_path = get_latest_checkpoint(os.path.join(run_config["train_output_dir"], "checkpoint"))
     print("Using checkpoint: ", ckpt_path)
 
-    config = model_config(config_preset, long_sequence_inference=False)
+    config = model_config(config_preset, long_sequence_inference=long_sequence_inference)
     config = override_config(config, run_config.get("override_conf", {}))
 
     model_generator = load_models_from_command_line(
@@ -165,7 +166,13 @@ def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_re
 if __name__ == "__main__":
     config_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "run_config.json")
     input_dir, output_dir = TEST_INPUT_DIR, TEST_OUTPUT_DIR
+    options = {"skip_relaxation": True, "long_sequence_inference": False}
     if len(sys.argv) > 3:
         input_dir = sys.argv[2]
         output_dir = sys.argv[3]
-    run_on_folder(input_dir, output_dir, config_path)
+        if "--relax" in sys.argv:
+            options["skip_relaxation"] = False
+        if "--long" in sys.argv:
+            options["long_sequence_inference"] = True
+
+    run_on_folder(input_dir, output_dir, config_path, **options)

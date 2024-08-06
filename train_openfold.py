@@ -398,6 +398,7 @@ def train(override_config_path: str):
     )
 
     # torch.cuda.memory._dump_snapshot("my_train_snapshot.pickle")
+    # view on https://pytorch.org/memory_viz
 
 
 if __name__ == "__main__":

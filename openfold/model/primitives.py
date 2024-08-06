@@ -43,8 +43,12 @@ from openfold.utils.tensor_utils import (
 )
 
 
-DEFAULT_LMA_Q_CHUNK_SIZE = 1024
-DEFAULT_LMA_KV_CHUNK_SIZE = 4096
+# Suited for 40gb GPU
+# DEFAULT_LMA_Q_CHUNK_SIZE = 1024
+# DEFAULT_LMA_KV_CHUNK_SIZE = 4096
+# Suited for 10gb GPU
+DEFAULT_LMA_Q_CHUNK_SIZE = 128
+DEFAULT_LMA_KV_CHUNK_SIZE = 512
 
 
 def _prod(nums):
