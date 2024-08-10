@@ -173,8 +173,8 @@ def get_molecule_from_output(atoms_atype: List[int], atom_chiralities: List[int]
     return mol
 
 
-def save_output_structure(aatype, residue_index, plddt, final_atom_protein_positions, final_atom_mask, ligand_atype,
-                          ligand_chiralities, ligand_charges, ligand_bonds, final_ligand_atom_positions,
+def save_output_structure(aatype, residue_index, chain_index, plddt, final_atom_protein_positions, final_atom_mask,
+                          ligand_atype, ligand_chiralities, ligand_charges, ligand_bonds, final_ligand_atom_positions,
                           protein_output_path, ligand_output_path, protein_affinity_output_path, affinity,
                           binding_site_probs):
     plddt_b_factors = numpy.repeat(
@@ -184,6 +184,7 @@ def save_output_structure(aatype, residue_index, plddt, final_atom_protein_posit
     unrelaxed_protein = protein.from_prediction(
         aatype=aatype,
         residue_index=residue_index,
+        chain_index=chain_index,
         atom_mask=final_atom_mask,
         atom_positions=final_atom_protein_positions,
         b_factors=plddt_b_factors,
@@ -200,6 +201,7 @@ def save_output_structure(aatype, residue_index, plddt, final_atom_protein_posit
     protein_binding_site = protein.from_prediction(
         aatype=aatype,
         residue_index=residue_index,
+        chain_index=chain_index,
         atom_mask=final_atom_mask,
         atom_positions=final_atom_protein_positions,
         b_factors=binding_site_b_factors,

@@ -589,6 +589,7 @@ def ideal_atom_mask(prot: Protein) -> np.ndarray:
 def from_prediction(
     aatype: np.ndarray,
     residue_index: np.ndarray,
+    chain_index: np.ndarray,
     atom_positions: np.ndarray,
     atom_mask: np.ndarray,
     b_factors: Optional[np.ndarray] = None,
@@ -614,7 +615,7 @@ def from_prediction(
     def _maybe_remove_leading_dim(arr: np.ndarray) -> np.ndarray:
         return arr[0] if remove_leading_feature_dimension else arr
 
-    chain_index = np.zeros_like(_maybe_remove_leading_dim(aatype))
+    chain_index = _maybe_remove_leading_dim(chain_index)
 
     if b_factors is None:
         b_factors = np.zeros_like(atom_mask)
@@ -623,7 +624,7 @@ def from_prediction(
         aatype=_maybe_remove_leading_dim(aatype),
         atom_positions=atom_positions,
         atom_mask=atom_mask,
-        residue_index=_maybe_remove_leading_dim(residue_index) + 1,
+        residue_index=_maybe_remove_leading_dim(residue_index),
         b_factors=b_factors,
         chain_index=chain_index,
         remark=remark,

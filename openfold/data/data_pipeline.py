@@ -77,20 +77,20 @@ def make_protein_features(
 
     pdb_feats["all_atom_positions"] = all_atom_positions.astype(np.float32)
     pdb_feats["all_atom_mask"] = all_atom_mask.astype(np.float32)
-    pdb_feats["residue_index"] = protein_object.residue_index.astype(np.int32)
+    pdb_feats["in_chain_residue_index"] = protein_object.residue_index.astype(np.int32)
 
+    gapped_res_indexes = []
+    prev_chain_index = protein_object.chain_index[0]
+    chain_start_res_ind = 0
+    for relative_res_ind, chain_index in zip(protein_object.residue_index, protein_object.chain_index):
+        if chain_index != prev_chain_index:
+            chain_start_res_ind = gapped_res_indexes[-1] + 50
+            prev_chain_index = chain_index
+        gapped_res_indexes.append(relative_res_ind + chain_start_res_ind)
+
+    pdb_feats["residue_index"] = np.array(gapped_res_indexes).astype(np.int32)
+    pdb_feats["chain_index"] = np.array(protein_object.chain_index).astype(np.int32)
     pdb_feats["resolution"] = np.array([0.]).astype(np.float32)
-
-    return pdb_feats
-
-
-def make_pdb_features(
-    protein_object: protein.Protein,
-    description: str,
-) -> FeatureDict:
-    pdb_feats = make_protein_features(
-        protein_object, description
-    )
 
     return pdb_feats
 
@@ -139,7 +139,7 @@ class DataPipeline:
 
         protein_object = protein.from_pdb_string(pdb_str, chain_id)
         description = os.path.splitext(os.path.basename(pdb_path))[0].upper()
-        pdb_feats = make_pdb_features(
+        pdb_feats = make_protein_features(
             protein_object,
             description,
         )

@@ -172,18 +172,13 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
             resolution = self._prepare_recycles(torch.tensor([input_data["resolution"]], dtype=torch.float32),
                                                 num_recycles)
 
-            # prepare binding site mask
-            flatten_residue_index = input_protein_feats["residue_index"][..., 0].flatten().tolist()
-            binding_site_mask = torch.zeros(n_res, dtype=torch.float32)
-            for i in input_data["pocket_res_ids"]:
-                binding_site_mask[flatten_residue_index.index(i)] = True
-            binding_site_mask = self._prepare_recycles(binding_site_mask, num_recycles)
-
             # prepare inter_contacts
             a_expanded = gt_protein_feats["pseudo_beta"][..., -1].unsqueeze(1)  # Shape: (N_prot, 1, 3)
             b_expanded = gt_ligand_positions[..., -1].unsqueeze(0)  # Shape: (1, N_lig, 3)
             distances = torch.sqrt(torch.sum((a_expanded - b_expanded) ** 2, dim=-1))
             inter_contact = (distances < 5.0).float()
+
+            binding_site_mask = self._prepare_recycles(inter_contact.any(dim=1).float(), num_recycles)
             inter_contact = self._prepare_recycles(inter_contact, num_recycles)
 
             feats = {

@@ -59,7 +59,7 @@ def create_embeded_molecule(ref_mol: Chem.Mol, smiles: str):
     return target_mol, conformer_ids[best_rmsd_index]
 
 
-def get_rmsd(gt_protein_path: str, gt_ligand_path: str, pred_protein_path: str, pred_ligand_path:str, gt_chain_id: str,
+def get_rmsd(gt_protein_path: str, gt_ligand_path: str, pred_protein_path: str, pred_ligand_path:str,
              reembed_smiles: Optional[str] = None, save_aligned: bool = False):
 
     gt_protein = get_pdb_model(gt_protein_path)
@@ -68,8 +68,11 @@ def get_rmsd(gt_protein_path: str, gt_ligand_path: str, pred_protein_path: str, 
     # impose the proteins
     super_imposer = Bio.PDB.Superimposer()
 
-    ref_atoms = [res["CA"] for res in gt_protein[gt_chain_id].get_residues() if "CA" in res
-                 and Bio.SeqUtils.seq1(res.get_resname()) not in ("X", "")]
+    ref_atoms = []
+    for chain_id in sorted([c.id for c in gt_protein.get_chains()]):
+        for res in gt_protein[chain_id]:
+            if "CA" in res and Bio.SeqUtils.seq1(res.get_resname()) not in ("X", ""):
+                ref_atoms.append(res["CA"])
     sample_atoms = [res["CA"] for res in pred_protein.get_residues() if "CA" in res]
 
     # debug issues
@@ -125,7 +128,7 @@ def get_rmsd(gt_protein_path: str, gt_ligand_path: str, pred_protein_path: str, 
         io.set_structure(pred_protein)
         io.save(aligned_pdb_path)
         aligned_ligand_path = pred_ligand_path + "_aligned.sdf"
-        Chem.MolToMolFile(pred_ligand, aligned_ligand_path)
+        Chem.MolToMolFile(pred_ligand, aligned_ligand_path, confId=conf_id)
 
     return rmsd
 
@@ -140,7 +143,7 @@ def main(config_path):
         i += 1
     output_dir = os.path.join(POSEBUSTERS_OUTPUT, f"output_{i}")
     os.makedirs(output_dir, exist_ok=True)
-    run_on_folder(POSEBUSTERS_JSONS, output_dir, config_path)
+    run_on_folder(POSEBUSTERS_JSONS, output_dir, config_path, long_sequence_inference=True)
     # output_dir = os.path.join(POSEBUSTERS_OUTPUT, f"output_32_relaxed")
 
     if not use_relaxed:
@@ -170,16 +173,14 @@ def main(config_path):
         input_json = os.path.join(POSEBUSTERS_JSONS, f"{jobname}.json")
         smiles = json.load(open(input_json, "r"))["input_smiles"]
 
-        gt_chain_id = open(gt_ligand_path, "r").readline().strip().split()[0].split("_")[2][0]
-
         print(jobname)
         try:
             if use_relaxed:
-                rmsd = get_rmsd(gt_protein_path, gt_ligand_path, relaxed_protein_path, relaxed_ligand_path, gt_chain_id)
+                rmsd = get_rmsd(gt_protein_path, gt_ligand_path, relaxed_protein_path, relaxed_ligand_path)
             else:
                 if not use_reembed:
                     smiles = None
-                rmsd = get_rmsd(gt_protein_path, gt_ligand_path, pred_protein_path, pred_ligand_path, gt_chain_id,
+                rmsd = get_rmsd(gt_protein_path, gt_ligand_path, pred_protein_path, pred_ligand_path,
                                 reembed_smiles=smiles)
         except Exception as e:
             print(f"Failed to compute RMSD for {jobname}", e)

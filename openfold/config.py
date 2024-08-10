@@ -94,6 +94,8 @@ config = mlc.ConfigDict(
                     "pseudo_beta": [NUM_RES, None],
                     "pseudo_beta_mask": [NUM_RES],
                     "residue_index": [NUM_RES],
+                    "in_chain_residue_index": [NUM_RES],
+                    "chain_index": [NUM_RES],
                     "residx_atom14_to_atom37": [NUM_RES, None],
                     "residx_atom37_to_atom14": [NUM_RES, None],
                     "resolution": [],
@@ -111,6 +113,8 @@ config = mlc.ConfigDict(
                 "unsupervised_features": [
                     "aatype",
                     "residue_index",
+                    "in_chain_residue_index",
+                    "chain_index",
                     "msa",
                     "seq_length",
                     "between_segment_residues",

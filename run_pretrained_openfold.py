@@ -91,6 +91,7 @@ def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_re
         if os.path.exists(protein_output_path):
             print("skipping exists", output_name)
             continue
+
         # turn into a batch of size 1
         processed_feature_dict = {key: value.unsqueeze(0).to(device_name)
                                   for key, value in processed_feature_dict.items()}
@@ -123,7 +124,8 @@ def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_re
 
         save_output_structure(
             aatype=processed_feature_dict["aatype"][0],
-            residue_index=processed_feature_dict["residue_index"][0],
+            residue_index=processed_feature_dict["in_chain_residue_index"][0],
+            chain_index=processed_feature_dict["chain_index"][0],
             plddt=out["plddt"][0],
             final_atom_protein_positions=out["final_atom_positions"][0],
             final_atom_mask=out["final_atom_mask"][0],
