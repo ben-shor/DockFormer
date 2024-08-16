@@ -255,9 +255,6 @@ class AlphaFold(nn.Module):
 
         del z
 
-        if self.globals.only_affinity:
-            return outputs, None, None, None, None
-
         # Predict 3D structure
         outputs["sm"] = self.structure_module(
             outputs,
@@ -350,9 +347,6 @@ class AlphaFold(nn.Module):
                     # Sidestep AMP bug (PyTorch issue #65766)
                     if torch.is_autocast_enabled():
                         torch.clear_autocast_cache()
-
-                if self.globals.only_affinity:
-                    return self.iteration(feats, prevs, _recycle=False)
 
                 # Run the next iteration of the model
                 outputs, m_1_prev, z_prev, x_prev, early_stop = self.iteration(

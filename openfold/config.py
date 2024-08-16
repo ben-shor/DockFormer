@@ -176,7 +176,6 @@ config = mlc.ConfigDict(
             "use_flash": False,
             "offload_inference": False,
             "max_lr": 1e-3,
-            "only_affinity": False,
             "c_z": c_z,
             "c_m": c_m,
             "c_t": c_t,
