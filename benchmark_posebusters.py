@@ -34,7 +34,7 @@ def create_embeded_molecule(ref_mol: Chem.Mol, smiles: str):
     params.pruneRmsThresh = 0.1  # Pruning threshold for RMSD
 
     # Generate multiple conformers
-    num_conformers = 5  # Define the number of conformers to generate
+    num_conformers = 100  # Define the number of conformers to generate
     conformer_ids = AllChem.EmbedMultipleConfs(target_mol, numConfs=num_conformers, params=params)
 
     # Optional: Optimize each conformer using MMFF94 force field
@@ -59,7 +59,7 @@ def create_embeded_molecule(ref_mol: Chem.Mol, smiles: str):
     return target_mol, conformer_ids[best_rmsd_index]
 
 
-def get_rmsd(gt_protein_path: str, gt_ligand_path: str, pred_protein_path: str, pred_ligand_path:str,
+def get_rmsd(gt_protein_path: str, gt_ligand_path: str, pred_protein_path: str, pred_ligand_path:str, gt_chain_id: str,
              reembed_smiles: Optional[str] = None, save_aligned: bool = False):
 
     gt_protein = get_pdb_model(gt_protein_path)
@@ -68,12 +68,24 @@ def get_rmsd(gt_protein_path: str, gt_ligand_path: str, pred_protein_path: str, 
     # impose the proteins
     super_imposer = Bio.PDB.Superimposer()
 
-    ref_atoms = []
-    for chain_id in sorted([c.id for c in gt_protein.get_chains()]):
-        for res in gt_protein[chain_id]:
-            if "CA" in res and Bio.SeqUtils.seq1(res.get_resname()) not in ("X", ""):
-                ref_atoms.append(res["CA"])
-    sample_atoms = [res["CA"] for res in pred_protein.get_residues() if "CA" in res]
+    # ref_atoms = []
+    # for chain_id in sorted([c.id for c in gt_protein.get_chains()]):
+    #     for res in gt_protein[chain_id]:
+    #         if "CA" in res and Bio.SeqUtils.seq1(res.get_resname()) not in ("X", ""):
+    #             ref_atoms.append(res["CA"])
+    # sample_atoms = [res["CA"] for res in pred_protein.get_residues() if "CA" in res]
+
+    ref_atoms = [res["CA"] for res in gt_protein[gt_chain_id].get_residues() if "CA" in res
+                 and Bio.SeqUtils.seq1(res.get_resname()) not in ("X", "")]
+    ref_chain_ind = sorted([c.id for c in gt_protein.get_chains()]).index(gt_chain_id)
+    sample_chain_id = sorted([c.id for c in pred_protein.get_chains()])[ref_chain_ind]
+    sample_atoms = [res["CA"] for res in pred_protein[sample_chain_id].get_residues() if "CA" in res]
+
+    # alt_chains = []
+    # for possible_sample_chain_id in sorted([c.id for c in pred_protein.get_chains()]):
+    #     if sample_chain_id == possible_sample_chain_id:
+    #         continue
+
 
     # debug issues
     # for res1, res2 in zip(gt_protein[gt_chain_id].get_residues(), pred_protein.get_residues()):
@@ -144,7 +156,8 @@ def main(config_path):
     output_dir = os.path.join(POSEBUSTERS_OUTPUT, f"output_{i}")
     os.makedirs(output_dir, exist_ok=True)
     run_on_folder(POSEBUSTERS_JSONS, output_dir, config_path, long_sequence_inference=True)
-    # output_dir = os.path.join(POSEBUSTERS_OUTPUT, f"output_32_relaxed")
+    # output_dir = os.path.join(POSEBUSTERS_OUTPUT, f"output_10_relaxed")
+    # output_dir = os.path.join(POSEBUSTERS_OUTPUT, f"output11_run63")
 
     if not use_relaxed:
         jobnames = ["_".join(filename.split("_")[:2])
@@ -160,7 +173,7 @@ def main(config_path):
 
     print(f"Analyzing {len(jobnames)} jobs...")
 
-    all_rmsds = []
+    all_rmsds = {}
     for jobname in sorted(jobnames):
         gt_protein_path = os.path.join(POSEBUSTERS_GT, jobname, f"{jobname}_protein.pdb")
         gt_ligand_path = os.path.join(POSEBUSTERS_GT, jobname, f"{jobname}_ligand.sdf")
@@ -173,26 +186,32 @@ def main(config_path):
         input_json = os.path.join(POSEBUSTERS_JSONS, f"{jobname}.json")
         smiles = json.load(open(input_json, "r"))["input_smiles"]
 
+        if use_relaxed and not os.path.exists(relaxed_ligand_path):
+            print("skipping, no relaxed", jobname)
+            continue
+
+        gt_chain_id = open(gt_ligand_path, "r").readline().strip().split()[0].split("_")[2][0]
+
         print(jobname)
         try:
             if use_relaxed:
-                rmsd = get_rmsd(gt_protein_path, gt_ligand_path, relaxed_protein_path, relaxed_ligand_path)
+                rmsd = get_rmsd(gt_protein_path, gt_ligand_path, relaxed_protein_path, relaxed_ligand_path, gt_chain_id)
             else:
                 if not use_reembed:
                     smiles = None
-                rmsd = get_rmsd(gt_protein_path, gt_ligand_path, pred_protein_path, pred_ligand_path,
+                rmsd = get_rmsd(gt_protein_path, gt_ligand_path, pred_protein_path, pred_ligand_path, gt_chain_id,
                                 reembed_smiles=smiles)
         except Exception as e:
             print(f"Failed to compute RMSD for {jobname}", e)
             # raise e
             continue
         print(rmsd)
-        all_rmsds.append(rmsd)
+        all_rmsds[jobname] = rmsd
 
     print(all_rmsds)
 
-    print("Total: ", len(all_rmsds), "Under 2: ", sum(1 for rmsd in all_rmsds if rmsd < 2),
-          "Under 5: ", sum(1 for rmsd in all_rmsds if rmsd < 5))
+    print("Total: ", len(all_rmsds), "Under 2: ", sum(1 for rmsd in all_rmsds.values() if rmsd < 2),
+          "Under 5: ", sum(1 for rmsd in all_rmsds.values() if rmsd < 5))
 
 
 if __name__ == "__main__":

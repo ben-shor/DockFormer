@@ -255,6 +255,9 @@ class AlphaFold(nn.Module):
 
         del z
 
+        if self.globals.only_affinity:
+            return outputs, None, None, None, None
+
         # Predict 3D structure
         outputs["sm"] = self.structure_module(
             outputs,
@@ -348,6 +351,9 @@ class AlphaFold(nn.Module):
                     if torch.is_autocast_enabled():
                         torch.clear_autocast_cache()
 
+                if self.globals.only_affinity:
+                    return self.iteration(feats, prevs, _recycle=False)
+
                 # Run the next iteration of the model
                 outputs, m_1_prev, z_prev, x_prev, early_stop = self.iteration(
                     feats,
@@ -368,12 +374,5 @@ class AlphaFold(nn.Module):
 
         # Run auxiliary heads
         outputs.update(self.aux_heads(outputs))
-
-        affinity_2d = torch.sum(torch.softmax(outputs["affinity_2d_logits"], -1).cpu() * torch.linspace(0, 15, 32),
-                                dim=-1)
-        affinity_1d = torch.sum(torch.softmax(outputs["affinity_1d_logits"], -1).cpu() * torch.linspace(0, 15, 32),
-                                dim=-1)
-        gt_affinity = batch["affinity"].flatten()[0] if "affinity" in batch else None
-        # print("Affinity summary", gt_affinity, affinity_2d[0], affinity_1d[0])
 
         return outputs
