@@ -26,8 +26,6 @@ dependencies:
   - git
 #  - pytorch::pytorch=2.3.0
   - pip:
-      - torch --index-url https://download.pytorch.org/whl/cu118
-      - deepspeed==0.12.4
+      - torch==2.3.0 --index-url https://download.pytorch.org/whl/cu118
       - dm-tree==0.1.6
       - git+https://github.com/NVIDIA/dllogger.git
-      - git+https://github.com/Dao-AILab/flash-attention.git@5b838a8

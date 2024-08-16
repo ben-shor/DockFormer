@@ -11,19 +11,19 @@ from lightning.pytorch import seed_everything
 import lightning.pytorch as pl
 import torch
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
-from lightning.pytorch.loggers import CSVLogger, WandbLogger
+from lightning.pytorch.loggers import WandbLogger
 
-from openfold.config import model_config
-from openfold.data.data_modules import OpenFoldDataModule
-from openfold.model.model import AlphaFold
-from openfold.np import residue_constants
-from openfold.utils.exponential_moving_average import ExponentialMovingAverage
-from openfold.utils.loss import AlphaFoldLoss, lddt_ca
-from openfold.utils.lr_schedulers import AlphaFoldLRScheduler
-from openfold.utils.script_utils import get_latest_checkpoint
-from openfold.utils.superimposition import superimpose
-from openfold.utils.tensor_utils import tensor_tree_map
-from openfold.utils.validation_metrics import (
+from evodocker.config import model_config
+from evodocker.data.data_modules import OpenFoldDataModule
+from evodocker.model.model import AlphaFold
+from evodocker.utils import residue_constants
+from evodocker.utils.exponential_moving_average import ExponentialMovingAverage
+from evodocker.utils.loss import AlphaFoldLoss, lddt_ca
+from evodocker.utils.lr_schedulers import AlphaFoldLRScheduler
+from evodocker.utils.script_utils import get_latest_checkpoint
+from evodocker.utils.superimposition import superimpose
+from evodocker.utils.tensor_utils import tensor_tree_map
+from evodocker.utils.validation_metrics import (
     drmsd,
     gdt_ts,
     gdt_ha,
@@ -31,9 +31,9 @@ from openfold.utils.validation_metrics import (
 )
 
 
-class OpenFoldWrapper(pl.LightningModule):
+class ModelWrapper(pl.LightningModule):
     def __init__(self, config):
-        super(OpenFoldWrapper, self).__init__()
+        super(ModelWrapper, self).__init__()
         self.config = config
         self.model = AlphaFold(config)
 
@@ -247,7 +247,6 @@ class OpenFoldWrapper(pl.LightningModule):
         if learning_rate is None:
             learning_rate = self.config.globals.max_lr
 
-        # Ignored as long as a DeepSpeed optimizer is configured
         optimizer = torch.optim.Adam(
             self.model.parameters(), 
             lr=learning_rate, 
@@ -310,7 +309,8 @@ def train(override_config_path: str):
 
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device_name = "cuda" if torch.cuda.is_available() else "cpu"
-    model_module = OpenFoldWrapper(config)
+    device_name = "mps" if device_name == "cpu" and torch.backends.mps.is_available() else device_name
+    model_module = ModelWrapper(config)
 
     # for debugging memory:
     # torch.cuda.memory._record_memory_history()

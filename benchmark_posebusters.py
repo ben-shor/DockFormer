@@ -11,7 +11,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolAlign
 from rdkit.Geometry import Point3D
 
-from run_pretrained_openfold import run_on_folder
+from run_pretrained_model import run_on_folder
 from env_consts import POSEBUSTERS_JSONS, POSEBUSTERS_OUTPUT, POSEBUSTERS_GT, CKPT_PATH
 
 
