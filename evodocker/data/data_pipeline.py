@@ -14,185 +14,123 @@
 # limitations under the License.
 
 import os
-from typing import Optional, MutableMapping
+from typing import List
+
 import numpy as np
 import torch
-from torch import nn
-
-from evodocker.utils import residue_constants, protein
+import ml_collections as mlc
 from rdkit import Chem
 
-from evodocker.utils.consts import POSSIBLE_BOND_TYPES, POSSIBLE_ATOM_TYPES, POSSIBLE_CHARGES, POSSIBLE_CHIRALITIES
+from evodocker.data import data_transforms
+from evodocker.data.ligand_features import make_ligand_features
+from evodocker.data.protein_features import make_protein_features
+from evodocker.data.utils import FeatureTensorDict, FeatureDict
+from evodocker.utils import protein
 
-FeatureDict = MutableMapping[str, np.ndarray]
-FeatureTensorDict = MutableMapping[str, torch.Tensor]
+
+def _np_filter_and_to_tensor_dict(np_example: FeatureDict, features_to_keep: List[str]) -> FeatureTensorDict:
+    """Creates dict of tensors from a dict of NumPy arrays.
+
+    Args:
+        np_example: A dict of NumPy feature arrays.
+        features: A list of strings of feature names to be returned in the dataset.
+
+    Returns:
+        A dictionary of features mapping feature names to features. Only the given
+        features are returned, all other ones are filtered out.
+    """
+    # torch generates warnings if feature is already a torch Tensor
+    to_tensor = lambda t: torch.tensor(t) if type(t) != torch.Tensor else t.clone().detach()
+    tensor_dict = {
+        k: to_tensor(v) for k, v in np_example.items() if k in features_to_keep
+    }
+
+    return tensor_dict
 
 
-def make_sequence_features(
-    sequence: str, description: str, num_res: int
-) -> FeatureDict:
-    """Construct a feature dict of sequence features."""
-    features = {}
-    features["aatype"] = residue_constants.sequence_to_onehot(
-        sequence=sequence,
-        mapping=residue_constants.restype_order_with_x,
-        map_unknown_to_x=True,
-    )
-    features["between_segment_residues"] = np.zeros((num_res,), dtype=np.int32)
-    features["domain_name"] = np.array(
-        [description.encode("utf-8")], dtype=object
-    )
-    # features["residue_index"] = np.array(range(num_res), dtype=np.int32)
-    features["seq_length"] = np.array([num_res] * num_res, dtype=np.int32)
-    features["sequence"] = np.array(
-        [sequence.encode("utf-8")], dtype=object
-    )
+def _add_protein_probablistic_features(features: FeatureDict, cfg: mlc.ConfigDict, mode: str) -> FeatureDict:
+    if mode == "train":
+        p = torch.rand(1).item()
+        use_clamped_fape_value = float(p < cfg.supervised.clamp_prob)
+        features["use_clamped_fape"] = np.float32(use_clamped_fape_value)
+    else:
+        features["use_clamped_fape"] = np.float32(0.0)
     return features
 
 
-def _aatype_to_str_sequence(aatype):
-    return ''.join([
-        residue_constants.restypes_with_x[aatype[i]]
-        for i in range(len(aatype))
-    ])
+@data_transforms.curry1
+def compose(x, fs):
+    for f in fs:
+        x = f(x)
+    return x
 
 
-def make_protein_features(
-    protein_object: protein.Protein,
-    description: str,
-) -> FeatureDict:
-    pdb_feats = {}
-    aatype = protein_object.aatype
-    sequence = _aatype_to_str_sequence(aatype)
-    pdb_feats.update(
-        make_sequence_features(
-            sequence=sequence,
-            description=description,
-            num_res=len(protein_object.aatype),
-        )
-    )
+def _apply_protein_transforms(tensors: FeatureTensorDict) -> FeatureTensorDict:
+    transforms = [
+        data_transforms.cast_to_64bit_ints,
+        data_transforms.squeeze_features,
+        data_transforms.make_atom14_masks,
+        data_transforms.make_atom14_positions,
+        data_transforms.atom37_to_frames,
+        data_transforms.atom37_to_torsion_angles(""),
+        data_transforms.make_pseudo_beta(),
+        data_transforms.get_backbone_frames,
+        data_transforms.get_chi_angles,
+    ]
 
-    all_atom_positions = protein_object.atom_positions
-    all_atom_mask = protein_object.atom_mask
+    tensors = compose(transforms)(tensors)
 
-    pdb_feats["all_atom_positions"] = all_atom_positions.astype(np.float32)
-    pdb_feats["all_atom_mask"] = all_atom_mask.astype(np.float32)
-    pdb_feats["in_chain_residue_index"] = protein_object.residue_index.astype(np.int32)
-
-    gapped_res_indexes = []
-    prev_chain_index = protein_object.chain_index[0]
-    chain_start_res_ind = 0
-    for relative_res_ind, chain_index in zip(protein_object.residue_index, protein_object.chain_index):
-        if chain_index != prev_chain_index:
-            chain_start_res_ind = gapped_res_indexes[-1] + 50
-            prev_chain_index = chain_index
-        gapped_res_indexes.append(relative_res_ind + chain_start_res_ind)
-
-    pdb_feats["residue_index"] = np.array(gapped_res_indexes).astype(np.int32)
-    pdb_feats["chain_index"] = np.array(protein_object.chain_index).astype(np.int32)
-    pdb_feats["resolution"] = np.array([0.]).astype(np.float32)
-
-    return pdb_feats
+    return tensors
 
 
-def get_atom_features(atom: Chem.Atom):
-    atom_type = POSSIBLE_ATOM_TYPES.index(atom.GetSymbol())
-    atom_charge = POSSIBLE_CHARGES.index(max(min(atom.GetFormalCharge(), 1), -1))
-    atom_chirality = POSSIBLE_CHIRALITIES.index(atom.GetChiralTag())
+def _apply_protein_probablistic_transforms(tensors: FeatureTensorDict, cfg: mlc.ConfigDict, mode: str) \
+        -> FeatureTensorDict:
+    transforms = [data_transforms.make_target_feat()]
 
-    return {"atom_type": atom_type, "atom_charge": atom_charge, "atom_chirality": atom_chirality}
+    crop_feats = dict(cfg.common.feat)
 
+    if cfg[mode].fixed_size:
+        transforms.append(data_transforms.select_feat(list(crop_feats)))
+        # TODO bshor: restore transforms for training on cropped proteins, need to handle pocket somehow
+        # if so, look for random_crop_to_size and make_fixed_size in data_transforms.py
 
-def get_bond_features(bond: Chem.Bond):
-    bond_type = POSSIBLE_BOND_TYPES.index(bond.GetBondType())
-    return {"bond_type": bond_type}
+    compose(transforms)(tensors)
+
+    return tensors
 
 
 class DataPipeline:
     """Assembles input features."""
-    def __init__(
-        self,
-    ):
-        pass
+    def __init__(self, config: mlc.ConfigDict, mode: str):
+        self.config = config
+        self.mode = mode
 
-    def process_pdb(
-        self,
-        pdb_path: str,
-        chain_id: Optional[str] = None,
-        _structure_index: Optional[str] = None,
-    ) -> FeatureDict:
+        self.feature_names = config.common.unsupervised_features
+        if config[mode].supervised:
+            self.feature_names += config.supervised.supervised_features
+
+    def process_pdb(self, pdb_path: str) -> FeatureTensorDict:
         """
             Assembles features for a protein in a PDB file.
         """
-        if(_structure_index is not None):
-            db_dir = os.path.dirname(pdb_path)
-            db = _structure_index["db"]
-            db_path = os.path.join(db_dir, db)
-            fp = open(db_path, "rb")
-            _, offset, length = _structure_index["files"][0]
-            fp.seek(offset)
-            pdb_str = fp.read(length).decode("utf-8")
-            fp.close()
-        else:
-            with open(pdb_path, 'r') as f:
-                pdb_str = f.read()
+        with open(pdb_path, 'r') as f:
+            pdb_str = f.read()
 
-        protein_object = protein.from_pdb_string(pdb_str, chain_id)
+        protein_object = protein.from_pdb_string(pdb_str)
         description = os.path.splitext(os.path.basename(pdb_path))[0].upper()
-        pdb_feats = make_protein_features(
-            protein_object,
-            description,
-        )
+        pdb_feats = make_protein_features(protein_object, description)
+        pdb_feats = _add_protein_probablistic_features(pdb_feats, self.config, self.mode)
 
-        return {**pdb_feats}
+        tensor_feats = _np_filter_and_to_tensor_dict(pdb_feats, self.feature_names)
 
-    def _process_rdkit_ligand(self, ligand: Chem.Mol) -> FeatureTensorDict:
-        # Add ligand atoms
-        atoms_features = []
-        atom_idx_to_atom_pos_idx = {}
-        for atom in ligand.GetAtoms():
-            atom_idx_to_atom_pos_idx[atom.GetIdx()] = len(atoms_features)
-            atoms_features.append(get_atom_features(atom))
+        tensor_feats = _apply_protein_transforms(tensor_feats)
+        tensor_feats = _apply_protein_probablistic_transforms(tensor_feats, self.config, self.mode)
 
-        atom_types = torch.tensor(np.array([atom["atom_type"] for atom in atoms_features], dtype=np.int64))
-        atom_types_one_hot = nn.functional.one_hot(atom_types, num_classes=len(POSSIBLE_ATOM_TYPES), )
-        atom_charges = torch.tensor(np.array([atom["atom_charge"] for atom in atoms_features], dtype=np.int64))
-        atom_charges_one_hot = nn.functional.one_hot(atom_charges, num_classes=len(POSSIBLE_CHARGES))
-        atom_chiralities = torch.tensor(np.array([atom["atom_chirality"] for atom in atoms_features], dtype=np.int64))
-        atom_chiralities_one_hot = nn.functional.one_hot(atom_chiralities, num_classes=len(POSSIBLE_CHIRALITIES))
-
-        ligand_target_feat = torch.cat([atom_types_one_hot.float(), atom_charges_one_hot.float(),
-                                        atom_chiralities_one_hot.float()], dim=1)
-
-        # create one-hot matrix encoding for bonds
-        ligand_bonds_feat = torch.zeros((len(atoms_features), len(atoms_features), len(POSSIBLE_BOND_TYPES)))
-        ligand_bonds = []
-        for bond in ligand.GetBonds():
-            atom1_idx = atom_idx_to_atom_pos_idx[bond.GetBeginAtomIdx()]
-            atom2_idx = atom_idx_to_atom_pos_idx[bond.GetEndAtomIdx()]
-            bond_features = get_bond_features(bond)
-            ligand_bonds.append((atom1_idx, atom2_idx, bond_features["bond_type"]))
-            ligand_bonds_feat[atom1_idx, atom2_idx, bond_features["bond_type"]] = 1
-
-        batched_atom_types = atom_types[None]
-        batched_atom_charges = atom_charges[None]
-        batched_atom_chiralities = atom_chiralities[None]
-        batched_ligand_bonds = torch.tensor(ligand_bonds, dtype=torch.int64)[None]
-
-        return {
-            # These are used for reconstruction at the end of the pipeline
-            "ligand_atype": batched_atom_types,
-            "ligand_charge": batched_atom_charges,
-            "ligand_chirality": batched_atom_chiralities,
-            "ligand_bonds": batched_ligand_bonds,
-            # these are the actual features
-            "ligand_target_feat": ligand_target_feat.float(),
-            "ligand_bonds_feat": ligand_bonds_feat.float(),
-        }
+        return tensor_feats
 
     def process_smiles(self, smiles: str) -> FeatureTensorDict:
         ligand = Chem.MolFromSmiles(smiles)
-        return self._process_rdkit_ligand(ligand)
+        return make_ligand_features(ligand)
 
     def process_mol2(self, mol2_path: str) -> FeatureTensorDict:
         """
@@ -205,7 +143,7 @@ class DataPipeline:
         positions = torch.tensor(conf.GetPositions())
 
         return {
-            **self._process_rdkit_ligand(ligand),
+            **make_ligand_features(ligand),
             "gt_ligand_positions": positions.float()
         }
 
@@ -220,7 +158,7 @@ class DataPipeline:
         positions = torch.tensor(conf.GetPositions())
 
         return {
-            **self._process_rdkit_ligand(ligand),
+            **make_ligand_features(ligand),
             "ligand_positions": positions.float()
         }
 

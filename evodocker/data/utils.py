@@ -20,7 +20,13 @@ import logging
 import shutil
 import tempfile
 import time
-from typing import Optional
+from typing import Optional, Mapping, Dict
+
+import numpy as np
+import torch
+
+FeatureDict = Dict[str, np.ndarray]
+FeatureTensorDict = Dict[str, torch.Tensor]
 
 
 @contextlib.contextmanager

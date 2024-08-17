@@ -13,10 +13,7 @@ import torch
 from torch.utils.data import RandomSampler
 
 from evodocker.utils.residue_constants import restypes
-from evodocker.data import (
-    data_pipeline,
-    feature_pipeline,
-)
+from evodocker.data import data_pipeline
 from evodocker.utils.consts import POSSIBLE_ATOM_TYPES
 from evodocker.utils.tensor_utils import dict_multimap
 from evodocker.utils.tensor_utils import (
@@ -53,9 +50,8 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         self._all_input_files = [i for i in os.listdir(data_dir)
                                  if i.endswith(".json") and self._verify_json_input_file(i)]
 
-        self.data_pipeline = data_pipeline.DataPipeline()
+        self.data_pipeline = data_pipeline.DataPipeline(config, mode)
 
-        self.feature_pipeline = feature_pipeline.FeaturePipeline(config)
 
     def _verify_json_input_file(self, file_name: str) -> bool:
         with open(os.path.join(self.data_dir, file_name), "r") as f:
@@ -102,8 +98,9 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
 
         parent_dir = os.path.dirname(self.data_dir)
         input_pdb_path = os.path.join(parent_dir, input_data["input_structure"])
-        input_protein_structure = self.data_pipeline.process_pdb(pdb_path=input_pdb_path)
-        input_protein_feats = self.feature_pipeline.process_features(input_protein_structure, self.mode)
+        input_protein_feats = self.data_pipeline.process_pdb(pdb_path=input_pdb_path)
+        for k, v in input_protein_feats.items():
+            input_protein_feats[k] = self._prepare_recycles(v, num_recycles)
 
         # load ref sdf
         ref_sdf_path = os.path.join(parent_dir, input_data["ref_sdf"])
@@ -156,8 +153,9 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         if self.mode == 'train' or self.mode == 'eval':
             gt_pdb_path = os.path.join(parent_dir, input_data["gt_structure"])
 
-            gt_protein_structure = self.data_pipeline.process_pdb(pdb_path=gt_pdb_path)
-            gt_protein_feats = self.feature_pipeline.process_features(gt_protein_structure, self.mode)
+            gt_protein_feats = self.data_pipeline.process_pdb(pdb_path=gt_pdb_path)
+            for k, v in gt_protein_feats.items():
+                gt_protein_feats[k] = self._prepare_recycles(v, num_recycles)
 
             gt_ligand_positions = self.data_pipeline.get_matching_positions(
                 os.path.join(parent_dir, input_data["ref_sdf"]),
