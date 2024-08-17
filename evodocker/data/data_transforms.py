@@ -65,7 +65,6 @@ def squeeze_features(protein):
         "seq_length",
         "sequence",
         "resolution",
-        "between_segment_residues",
         "residue_index",
     ]:
         if k in protein:
@@ -119,17 +118,9 @@ def make_target_feat(protein):
     """Create and concatenate protein features."""
     # Whether there is a domain break. Always zero for chains, but keeping for
     # compatibility with domain datasets.
-    has_break = torch.clip(
-        protein["between_segment_residues"].to(torch.float32), 0, 1
-    )
-    aatype_1hot = make_one_hot(protein["aatype"], 21)
+    aatype_1hot = make_one_hot(protein["aatype"], 20)
 
-    target_feat = [
-        torch.unsqueeze(has_break, dim=-1),
-        aatype_1hot,  # Everyone gets the original sequence.
-    ]
-
-    protein["protein_target_feat"] = torch.cat(target_feat, dim=-1)
+    protein["protein_target_feat"] = aatype_1hot
 
     return protein
 
@@ -723,4 +714,31 @@ def random_crop_to_size(
 
     protein["seq_length"] = protein["seq_length"].new_tensor(num_res_crop_size)
     
+    return protein
+
+
+@curry1
+def make_fixed_size(protein, config, num_res=0):
+    pad_size_map = {
+        NUM_RES: num_res,
+    }
+    shape_schema = config.common.feat
+
+    for k, v in protein.items():
+        # Don't transfer this to the accelerator.
+        shape = list(v.shape)
+        schema = shape_schema[k]
+        msg = "Rank mismatch between shape and shape schema for"
+        assert len(shape) == len(schema), f"{msg} {k}: {shape} vs {schema}"
+        pad_size = [
+            pad_size_map.get(s2, None) or s1 for (s1, s2) in zip(shape, schema)
+        ]
+
+        padding = [(0, p - v.shape[i]) for i, p in enumerate(pad_size)]
+        padding.reverse()
+        padding = list(itertools.chain(*padding))
+        if padding:
+            protein[k] = torch.nn.functional.pad(v, padding)
+            protein[k] = torch.reshape(protein[k], pad_size)
+
     return protein

@@ -108,7 +108,6 @@ config = mlc.ConfigDict(
                     "in_chain_residue_index",
                     "chain_index",
                     "seq_length",
-                    "between_segment_residues",
                     "no_recycling_iters",
                     "all_atom_mask",
                     "all_atom_positions",
@@ -146,6 +145,7 @@ config = mlc.ConfigDict(
             "data_module": {
                 "data_loaders": {
                     "batch_size": 1,
+                    # "batch_size": 2,
                     "num_workers": 16,
                     "pin_memory": True,
                 },
@@ -167,7 +167,7 @@ config = mlc.ConfigDict(
         "model": {
             "_mask_trans": False,
             "structure_input_embedder": {
-                "protein_tf_dim": 22,
+                "protein_tf_dim": 20,
                 # len(POSSIBLE_ATOM_TYPES) + len(POSSIBLE_CHARGES) + len(POSSIBLE_CHIRALITIES)
                 "ligand_tf_dim": 35,
                 "ligand_bond_dim": 6,
