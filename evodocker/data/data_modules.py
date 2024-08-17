@@ -99,36 +99,30 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         parent_dir = os.path.dirname(self.data_dir)
         input_pdb_path = os.path.join(parent_dir, input_data["input_structure"])
         input_protein_feats = self.data_pipeline.process_pdb(pdb_path=input_pdb_path)
-        for k, v in input_protein_feats.items():
-            input_protein_feats[k] = self._prepare_recycles(v, num_recycles)
 
         # load ref sdf
         ref_sdf_path = os.path.join(parent_dir, input_data["ref_sdf"])
         ref_ligand_feats = self.data_pipeline.process_sdf(sdf_path=ref_sdf_path)
-        for k, v in ref_ligand_feats.items():
-            ref_ligand_feats[k] = self._prepare_recycles(v, num_recycles)
 
         n_res = input_protein_feats["protein_target_feat"].shape[0]
         n_lig = ref_ligand_feats["ligand_target_feat"].shape[0]
 
-        token_mask = torch.ones((n_res + n_lig, num_recycles), dtype=torch.float32)
         ligand_target_feat = ref_ligand_feats["ligand_target_feat"]
         ligand_bonds_feat = ref_ligand_feats["ligand_bonds_feat"]
         ref_ligand_positions = ref_ligand_feats["ligand_positions"]
 
         # add affinity, add additional token
-        token_mask = torch.ones((n_res + n_lig + 1, num_recycles), dtype=torch.float32)
+        token_mask = torch.ones((n_res + n_lig + 1, ), dtype=torch.float32)
         # TODO: this should be same size as token mask but with zeros for ligand, then needs to change loss.py
-        protein_mask = torch.ones((n_res, num_recycles), dtype=torch.float32)
+        protein_mask = torch.ones((n_res, ), dtype=torch.float32)
 
-        affinity_target_feat = torch.zeros((1, ligand_target_feat.shape[-2]), dtype=torch.float32)
+        affinity_target_feat = torch.zeros((1, ligand_target_feat.shape[-1]), dtype=torch.float32)
         affinity_target_feat[0, POSSIBLE_ATOM_TYPES.index("[AFFINITY]")] = 1
-        affinity_target_feat = self._prepare_recycles(affinity_target_feat, num_recycles)
         ligand_target_feat = torch.cat([ligand_target_feat, affinity_target_feat], dim=0)
 
-        bonds_feat_size = ligand_bonds_feat.shape[-2]
-        column_zeros = torch.zeros(n_lig, 1, bonds_feat_size, num_recycles)
-        row_zeros = torch.zeros(1, n_lig + 1, bonds_feat_size, num_recycles)
+        bonds_feat_size = ligand_bonds_feat.shape[-1]
+        column_zeros = torch.zeros(n_lig, 1, bonds_feat_size)
+        row_zeros = torch.zeros(1, n_lig + 1, bonds_feat_size)
         tensor_with_col = torch.cat([ligand_bonds_feat, column_zeros], dim=1)
         ligand_bonds_feat = torch.cat([tensor_with_col, row_zeros], dim=0)
 
@@ -154,8 +148,6 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
             gt_pdb_path = os.path.join(parent_dir, input_data["gt_structure"])
 
             gt_protein_feats = self.data_pipeline.process_pdb(pdb_path=gt_pdb_path)
-            for k, v in gt_protein_feats.items():
-                gt_protein_feats[k] = self._prepare_recycles(v, num_recycles)
 
             gt_ligand_positions = self.data_pipeline.get_matching_positions(
                 os.path.join(parent_dir, input_data["ref_sdf"]),
@@ -163,20 +155,16 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
             )
             center = gt_ligand_positions.mean(dim=0)
             gt_ligand_positions = torch.cat([gt_ligand_positions, center.unsqueeze(0)], dim=0)
-            gt_ligand_positions = self._prepare_recycles(gt_ligand_positions, num_recycles)
 
-            affinity = self._prepare_recycles(torch.tensor([input_data["affinity"]], dtype=torch.float32), num_recycles)
-            resolution = self._prepare_recycles(torch.tensor([input_data["resolution"]], dtype=torch.float32),
-                                                num_recycles)
+            affinity = torch.tensor([input_data["affinity"]], dtype=torch.float32)
+            resolution = torch.tensor([input_data["resolution"]], dtype=torch.float32)
 
             # prepare inter_contacts
-            a_expanded = gt_protein_feats["pseudo_beta"][..., -1].unsqueeze(1)  # Shape: (N_prot, 1, 3)
-            b_expanded = gt_ligand_positions[..., -1].unsqueeze(0)  # Shape: (1, N_lig, 3)
+            a_expanded = gt_protein_feats["pseudo_beta"].unsqueeze(1)  # Shape: (N_prot, 1, 3)
+            b_expanded = gt_ligand_positions.unsqueeze(0)  # Shape: (1, N_lig, 3)
             distances = torch.sqrt(torch.sum((a_expanded - b_expanded) ** 2, dim=-1))
             inter_contact = (distances < 5.0).float()
-
-            binding_site_mask = self._prepare_recycles(inter_contact.any(dim=1).float(), num_recycles)
-            inter_contact = self._prepare_recycles(inter_contact, num_recycles)
+            binding_site_mask = inter_contact.any(dim=1).float()
 
             feats = {
                 **feats,
@@ -190,6 +178,9 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
             }
         else:
             pass
+
+        for k, v in feats.items():
+            feats[k] = self._prepare_recycles(v, num_recycles)
 
         feats["batch_idx"] = torch.tensor(
             [idx for _ in range(feats["aatype"].shape[-1] + feats["ligand_target_feat"].shape[-1])],
