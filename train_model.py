@@ -139,20 +139,31 @@ class ModelWrapper(pl.LightningModule):
     ):
         metrics = {}
         
-        protein_gt_coords = batch["all_atom_positions"]
-        protein_pred_coords = outputs["final_atom_positions"]
-        protein_all_atom_mask = batch["all_atom_mask"]
+        all_gt_coords = batch["atom37_gt_positions"]
+        all_pred_coords = outputs["final_atom_positions"]
+        all_atom_mask = batch["atom37_atom_exists_in_gt"]
 
-        ligand_positions = outputs["sm"]["ligand_atom_positions"][-1]
-        ligand_gt_positions = batch["gt_ligand_positions"]
-    
+        rough_protein_atom_mask = torch.repeat_interleave(batch["protein_mask"], 37, dim=-1).view(*all_atom_mask.shape)
+        protein_gt_coords = all_gt_coords * rough_protein_atom_mask[..., None]
+        protein_pred_coords = all_pred_coords * rough_protein_atom_mask[..., None]
+        protein_all_atom_mask = all_atom_mask * rough_protein_atom_mask
+
+        rough_ligand_atom_mask = torch.repeat_interleave(batch["ligand_mask"], 37, dim=-1).view(*all_atom_mask.shape)
+        ligand_gt_coords = all_gt_coords * rough_ligand_atom_mask[..., None]
+        ligand_pred_coords = all_pred_coords * rough_ligand_atom_mask[..., None]
+        ligand_all_atom_mask = all_atom_mask * rough_ligand_atom_mask
+
         # This is super janky for superimposition. Fix later
-        gt_coords_masked = protein_gt_coords * protein_all_atom_mask[..., None]
-        pred_coords_masked = protein_pred_coords * protein_all_atom_mask[..., None]
+        protein_gt_coords_masked = protein_gt_coords * protein_all_atom_mask[..., None]
+        protein_pred_coords_masked = protein_pred_coords * protein_all_atom_mask[..., None]
         ca_pos = residue_constants.atom_order["CA"]
-        gt_coords_masked_ca = gt_coords_masked[..., ca_pos, :]
-        pred_coords_masked_ca = pred_coords_masked[..., ca_pos, :]
-        all_atom_mask_ca = protein_all_atom_mask[..., ca_pos]
+        protein_gt_coords_masked_ca = protein_gt_coords_masked[..., ca_pos, :]
+        protein_pred_coords_masked_ca = protein_pred_coords_masked[..., ca_pos, :]
+        protein_atom_mask_ca = protein_all_atom_mask[..., ca_pos]
+
+        ligand_gt_coords_single_atom = ligand_gt_coords[:, ca_pos, :]
+        ligand_pred_coords_single_atom = ligand_pred_coords[:, ca_pos, :]
+        ligand_gt_mask_single_atom = ligand_all_atom_mask[:, ca_pos]
     
         lddt_ca_score = lddt_ca(
             protein_pred_coords,
@@ -165,16 +176,17 @@ class ModelWrapper(pl.LightningModule):
         metrics["lddt_ca"] = lddt_ca_score
    
         drmsd_ca_score = drmsd(
-            pred_coords_masked_ca,
-            gt_coords_masked_ca,
-            mask=all_atom_mask_ca, # still required here to compute n
+            protein_pred_coords_masked_ca,
+            protein_gt_coords_masked_ca,
+            mask=protein_atom_mask_ca,  # still required here to compute n
         )
    
         metrics["drmsd_ca"] = drmsd_ca_score
 
         drmsd_intra_ligand_score = drmsd(
-            ligand_positions,
-            ligand_gt_positions,
+            ligand_pred_coords_single_atom,
+            ligand_gt_coords_single_atom,
+            mask=ligand_gt_mask_single_atom,
         )
 
         metrics["drmsd_intra_ligand"] = drmsd_intra_ligand_score
@@ -200,39 +212,37 @@ class ModelWrapper(pl.LightningModule):
 
         # --- Affinity
         pred_affinity_1d = torch.sum(
-            torch.softmax(outputs["affinity_1d_logits"].clone().detach(), -1).cpu() * torch.linspace(0, 15, 32), dim=-1).item()
+            torch.softmax(outputs["affinity_1d_logits"].clone().detach(), -1).cpu() * torch.linspace(0, 15, 32), dim=-1)
 
         pred_affinity_2d = torch.sum(
-            torch.softmax(outputs["affinity_2d_logits"].clone().detach(), -1).cpu() * torch.linspace(0, 15, 32), dim=-1).item()
+            torch.softmax(outputs["affinity_2d_logits"].clone().detach(), -1).cpu() * torch.linspace(0, 15, 32), dim=-1)
 
         pred_affinity_cls = torch.sum(
-            torch.softmax(outputs["affinity_cls_logits"].clone().detach(), -1).cpu() * torch.linspace(0, 15, 32), dim=-1).item()
+            torch.softmax(outputs["affinity_cls_logits"].clone().detach(), -1).cpu() * torch.linspace(0, 15, 32), dim=-1)
 
-        metrics["affinity_dist_1d"] = torch.abs(batch["affinity"] - pred_affinity_1d)
-        metrics["affinity_dist_2d"] = torch.abs(batch["affinity"] - pred_affinity_2d)
-        metrics["affinity_dist_cls"] = torch.abs(batch["affinity"] - pred_affinity_cls)
-        metrics["affinity_dist_avg"] = torch.abs(batch["affinity"]
-                                                 - (pred_affinity_cls + pred_affinity_1d + pred_affinity_2d) / 3)
-        # print("affinity", batch["affinity"], pred_affinity_1d, pred_affinity_2d, pred_affinity_cls,
-        #       metrics["affinity_1d_dist"], metrics["affinity_2d_dist"], metrics["affinity_cls_dist"], metrics["affinity_avg_dist"])
-
+        gt_affinity = batch["affinity"].cpu()
+        metrics["affinity_dist_1d"] = torch.mean(torch.abs(gt_affinity - pred_affinity_1d))
+        metrics["affinity_dist_2d"] = torch.mean(torch.abs(gt_affinity - pred_affinity_2d))
+        metrics["affinity_dist_cls"] = torch.mean(torch.abs(gt_affinity - pred_affinity_cls))
+        metrics["affinity_dist_avg"] = torch.mean(torch.abs(gt_affinity
+                                        - (pred_affinity_cls + pred_affinity_1d + pred_affinity_2d) / 3))
         if superimposition_metrics:
             superimposed_pred, alignment_rmsd, rots, transs = superimpose(
-                gt_coords_masked_ca, pred_coords_masked_ca, all_atom_mask_ca,
+                protein_gt_coords_masked_ca, protein_pred_coords_masked_ca, protein_atom_mask_ca,
             )
             gdt_ts_score = gdt_ts(
-                superimposed_pred, gt_coords_masked_ca, all_atom_mask_ca
+                superimposed_pred, protein_gt_coords_masked_ca, protein_atom_mask_ca
             )
             gdt_ha_score = gdt_ha(
-                superimposed_pred, gt_coords_masked_ca, all_atom_mask_ca
+                superimposed_pred, protein_gt_coords_masked_ca, protein_atom_mask_ca
             )
 
             metrics["protein_alignment_rmsd"] = alignment_rmsd
             metrics["gdt_ts"] = gdt_ts_score
             metrics["gdt_ha"] = gdt_ha_score
 
-            superimposed_ligand_coords = ligand_positions @ rots + transs[:, None, :]
-            metrics["ligand_alignment_rmsd"] = rmsd(ligand_gt_positions, superimposed_ligand_coords)
+            superimposed_ligand_coords = ligand_pred_coords_single_atom @ rots + transs[:, None, :]
+            metrics["ligand_alignment_rmsd"] = rmsd(ligand_gt_coords_single_atom, superimposed_ligand_coords)
             metrics["ligand_alignment_rmsd_under_2"] = torch.mean((metrics["ligand_alignment_rmsd"] < 2).float())
             metrics["ligand_alignment_rmsd_under_5"] = torch.mean((metrics["ligand_alignment_rmsd"] < 5).float())
 

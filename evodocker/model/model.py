@@ -114,15 +114,11 @@ class AlphaFold(nn.Module):
                 feats[k] = feats[k].to(dtype=dtype)
 
         # Grab some data about the input
-        batch_dims = feats["protein_target_feat"].shape[:-2]
-        no_batch_dims = len(batch_dims)
+        batch_dims, n_total = feats["token_mask"].shape
+        device = feats["token_mask"].device
 
-        n_res = feats["protein_target_feat"].shape[-2]
-        n_lig = feats["ligand_target_feat"].shape[-2]
-        n_total = n_res + n_lig
-
-        device = feats["protein_target_feat"].device
-        print("doing sample of size", feats["protein_target_feat"].shape, feats["ligand_target_feat"].shape)
+        print("doing sample of size", feats["token_mask"].shape,
+              feats["protein_mask"].sum(dim=1), feats["ligand_mask"].sum(dim=1))
 
         # Controls whether the model uses in-place operations throughout
         # The dual condition accounts for activation checkpoints
@@ -137,12 +133,13 @@ class AlphaFold(nn.Module):
         # m: [*, 1, n_total, C_m]
         # z: [*, n_total, n_total, C_z]
         m, z = self.input_embedder(
-            feats["protein_target_feat"],
-            feats["residue_index"],
-            feats["input_pseudo_beta"],
-            feats["ref_ligand_positions"],
-            feats["ligand_target_feat"],
+            feats["token_mask"],
+            feats["protein_mask"],
+            feats["ligand_mask"],
+            feats["target_feat"],
             feats["ligand_bonds_feat"],
+            feats["input_positions"],
+            feats["protein_residue_index"],
             inplace_safe=inplace_safe,
         )
 
@@ -154,43 +151,35 @@ class AlphaFold(nn.Module):
         if None in [m_1_prev, z_prev, x_prev]:
             # [*, N, C_m]
             m_1_prev = m.new_zeros(
-                (*batch_dims, n_total, self.config.structure_input_embedder.c_m),
+                (batch_dims, n_total, self.config.structure_input_embedder.c_m),
                 requires_grad=False,
             )
 
             # [*, N, N, C_z]
             z_prev = z.new_zeros(
-                (*batch_dims, n_total, n_total, self.config.structure_input_embedder.c_z),
+                (batch_dims, n_total, n_total, self.config.structure_input_embedder.c_z),
                 requires_grad=False,
             )
 
             # [*, N, 3]
             x_prev = z.new_zeros(
-                (*batch_dims, n_total, residue_constants.atom_type_num, 3),
+                (batch_dims, n_total, residue_constants.atom_type_num, 3),
                 requires_grad=False,
             )
 
-        # x_prev.shape == [1, n_total, 37, 3]
-        x_prev_protein = x_prev[:, :n_res, :, :]
-        pseudo_beta_x_prev = pseudo_beta_fn(feats["aatype"], x_prev_protein, None).to(dtype=z.dtype)
-
-        lig_atoms_pos = x_prev[:, n_res:, 0, :]
-        beta_ligand_x_prev = torch.cat([pseudo_beta_x_prev, lig_atoms_pos], dim=1)
-
-        del x_prev_protein
-        del lig_atoms_pos
+        # shape == [1, n_total, 37, 3]
+        pseudo_beta_or_lig_x_prev = pseudo_beta_fn(feats["aatype"], x_prev, None).to(dtype=z.dtype)
 
         # m_1_prev_emb: [*, N, C_m]
         # z_prev_emb: [*, N, N, C_z]
         m_1_prev_emb, z_prev_emb = self.recycling_embedder(
             m_1_prev,
             z_prev,
-            beta_ligand_x_prev,
+            pseudo_beta_or_lig_x_prev,
             inplace_safe=inplace_safe,
         )
 
-        del pseudo_beta_x_prev
-        del beta_ligand_x_prev
+        del pseudo_beta_or_lig_x_prev
 
         # [*, S_c, N, C_m]
         m += m_1_prev_emb
@@ -221,16 +210,12 @@ class AlphaFold(nn.Module):
         outputs["single"] = s
         outputs["affinity_token"] = s[..., -1:, :]
 
-        # TODO bshor: this is needed for aux heads, but shouldn't really be part of the output
-        outputs["start_ligand_ind"] = torch.tensor([n_res]).to(device)
-
         del z
 
         # Predict 3D structure
         outputs["sm"] = self.structure_module(
             outputs,
             feats["aatype"],
-            ligand_start_ind=n_res,
             mask=token_mask.to(dtype=s.dtype),
             inplace_safe=inplace_safe,
         )
@@ -255,11 +240,7 @@ class AlphaFold(nn.Module):
         del x_prev
 
         # [*, N, 3]
-        protein_pos = outputs["final_atom_positions"]
-        ligand_pos = torch.zeros((protein_pos.shape[0], n_lig, protein_pos.shape[2], 3), device=device)
-        ligand_pos[:, :, 0, :] = outputs["sm"]["ligand_atom_positions"][-1]
-
-        x_prev = torch.cat([protein_pos, ligand_pos], dim=1)
+        x_prev = outputs["final_atom_positions"]
 
         return outputs, m_1_prev, z_prev, x_prev, early_stop
 
@@ -331,7 +312,7 @@ class AlphaFold(nn.Module):
 
         outputs["num_recycles"] = torch.tensor(num_recycles, device=feats["aatype"].device)
 
-        # Run auxiliary heads
-        outputs.update(self.aux_heads(outputs))
+        # Run auxiliary heads, remove the recycling dimension inter_pair_mask
+        outputs.update(self.aux_heads(outputs, batch["inter_pair_mask"][..., 0]))
 
         return outputs

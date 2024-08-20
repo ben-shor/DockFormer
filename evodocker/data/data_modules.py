@@ -1,4 +1,5 @@
 import copy
+import itertools
 import time
 from collections import Counter
 from functools import partial
@@ -9,9 +10,13 @@ from typing import Optional, Sequence, Any
 
 import ml_collections as mlc
 import lightning as L
+import numpy as np
 import torch
 from torch.utils.data import RandomSampler
 
+from evodocker.config import NUM_RES
+from evodocker.data.data_transforms import get_restypes, get_restype_atom37_mask
+from evodocker.data.utils import FeatureTensorDict
 from evodocker.utils.residue_constants import restypes
 from evodocker.data import data_pipeline
 from evodocker.utils.consts import POSSIBLE_ATOM_TYPES
@@ -86,6 +91,70 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
     def _prepare_recycles(feat: torch.Tensor, num_recycles: int) -> torch.Tensor:
         return feat.unsqueeze(-1).repeat(*([1] * len(feat.shape)), num_recycles)
 
+    # def _add_affinity_to_ligand(self, ref_ligand_feats: FeatureTensorDict) -> FeatureTensorDict:
+    #     # TODO: delete
+    #     # add affinity, add additional token
+    #     affinity_target_feat = torch.zeros((1, ref_ligand_feats["ligand_target_feat"].shape[-1]), dtype=torch.float32)
+    #     affinity_target_feat[0, POSSIBLE_ATOM_TYPES.index("[AFFINITY]")] = 1
+    #     ligand_target_feat = torch.cat([ ref_ligand_feats["ligand_target_feat"], affinity_target_feat], dim=0)
+    #
+    #     n_lig = ref_ligand_feats["ligand_target_feat"].shape[0]
+    #     bonds_feat_size = ref_ligand_feats["ligand_bonds_feat"].shape[-1]
+    #     column_zeros = torch.zeros(n_lig, 1, bonds_feat_size)
+    #     row_zeros = torch.zeros(1, n_lig + 1, bonds_feat_size)
+    #     tensor_with_col = torch.cat([ref_ligand_feats["ligand_target_feat"], column_zeros], dim=1)
+    #     ligand_bonds_feat = torch.cat([tensor_with_col, row_zeros], dim=0)
+    #
+    #     center = ref_ligand_feats["ref_ligand_positions"].mean(dim=0)
+    #     ref_ligand_positions = torch.cat([ref_ligand_feats["ref_ligand_positions"], center.unsqueeze(0)], dim=0)
+    #
+    #     return {
+    #         "ligand_target_feat": ligand_target_feat,
+    #         "ligand_bonds_feat": ligand_bonds_feat,
+    #         "ref_ligand_positions": ref_ligand_positions,
+    #     }
+    #
+    # def _pad_feats(self, feats):
+    #     # TODO: delte
+    #     if (self.mode == "train" or self.mode == "eval") and self.config.train.fixed_size:
+    #         shape_schema = self.config.common.feat
+    #         filtered_feats = {}
+    #         for k, v in feats.items():
+    #             if k not in shape_schema:
+    #                 continue
+    #             pad_size_map = {NUM_RES: self.config.train.crop_size}
+    #             shape = list(v.shape)
+    #             schema = shape_schema[k]
+    #             msg = "Rank mismatch between shape and shape schema for"
+    #             assert len(shape) == len(schema), f"{msg} {k}: {shape} vs {schema}"
+    #
+    #             pad_size = [
+    #                 pad_size_map.get(s2, None) or s1 for (s1, s2) in zip(shape, schema)
+    #             ]
+    #
+    #             padding = [(0, p - v.shape[i]) for i, p in enumerate(pad_size)]
+    #             padding.reverse()
+    #             padding = list(itertools.chain(*padding))
+    #             if padding:
+    #                 filtered_feats[k] = torch.nn.functional.pad(v, padding)
+    #                 filtered_feats[k] = torch.reshape(filtered_feats[k], pad_size)
+    #         feats = filtered_feats
+    #     return feats
+
+    def fit_to_crop(self, target_tensor: torch.Tensor, crop_size: int, start_ind: int) -> torch.Tensor:
+        if len(target_tensor.shape) == 1:
+            ret = torch.zeros((crop_size, ), dtype=target_tensor.dtype)
+            ret[start_ind:start_ind + target_tensor.shape[0]] = target_tensor
+            return ret
+        elif len(target_tensor.shape) == 2:
+            ret = torch.zeros((crop_size, target_tensor.shape[-1]), dtype=target_tensor.dtype)
+            ret[start_ind:start_ind + target_tensor.shape[0], :] = target_tensor
+            return ret
+        else:
+            ret = torch.zeros((crop_size, *target_tensor.shape[1:]), dtype=target_tensor.dtype)
+            ret[start_ind:start_ind + target_tensor.shape[0], ...] = target_tensor
+            return ret
+
     def __getitem__(self, idx):
         start_load_time = time.time()
 
@@ -106,86 +175,194 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
 
         n_res = input_protein_feats["protein_target_feat"].shape[0]
         n_lig = ref_ligand_feats["ligand_target_feat"].shape[0]
+        n_affinity = 1
 
-        ligand_target_feat = ref_ligand_feats["ligand_target_feat"]
-        ligand_bonds_feat = ref_ligand_feats["ligand_bonds_feat"]
-        ref_ligand_positions = ref_ligand_feats["ligand_positions"]
+        # ref_ligand_feats = self._add_affinity_to_ligand(ref_ligand_feats)
 
-        # add affinity, add additional token
-        token_mask = torch.ones((n_res + n_lig + 1, ), dtype=torch.float32)
-        # TODO: this should be same size as token mask but with zeros for ligand, then needs to change loss.py
-        protein_mask = torch.ones((n_res, ), dtype=torch.float32)
+        # add 1 for affinity token
+        crop_size = n_res + n_lig + n_affinity
+        if (self.mode == "train" or self.mode == "eval") and self.config.train.fixed_size:
+            crop_size = self.config.train.crop_size
 
-        affinity_target_feat = torch.zeros((1, ligand_target_feat.shape[-1]), dtype=torch.float32)
-        affinity_target_feat[0, POSSIBLE_ATOM_TYPES.index("[AFFINITY]")] = 1
-        ligand_target_feat = torch.cat([ligand_target_feat, affinity_target_feat], dim=0)
+        assert crop_size >= n_res + n_lig + n_affinity, f"crop_size: {crop_size}, n_res: {n_res}, n_lig: {n_lig}"
 
-        bonds_feat_size = ligand_bonds_feat.shape[-1]
-        column_zeros = torch.zeros(n_lig, 1, bonds_feat_size)
-        row_zeros = torch.zeros(1, n_lig + 1, bonds_feat_size)
-        tensor_with_col = torch.cat([ligand_bonds_feat, column_zeros], dim=1)
-        ligand_bonds_feat = torch.cat([tensor_with_col, row_zeros], dim=0)
+        token_mask = torch.zeros((crop_size,), dtype=torch.float32)
+        token_mask[:n_res + n_lig + n_affinity] = 1
 
-        center = ref_ligand_positions.mean(dim=0)
-        ref_ligand_positions = torch.cat([ref_ligand_positions, center.unsqueeze(0)], dim=0)
+        protein_mask = torch.zeros((crop_size,), dtype=torch.float32)
+        protein_mask[:n_res] = 1
+
+        ligand_mask = torch.zeros((crop_size,), dtype=torch.float32)
+        ligand_mask[n_res:n_res + n_lig] = 1
+
+        affinity_mask = torch.zeros((crop_size,), dtype=torch.float32)
+        affinity_mask[n_res + n_lig] = 1
+
+        structural_mask = torch.zeros((crop_size,), dtype=torch.float32)
+        structural_mask[:n_res + n_lig] = 1
+
+        inter_pair_mask = torch.zeros((crop_size, crop_size), dtype=torch.float32)
+        inter_pair_mask[:n_res, n_res:n_res + n_lig] = 1
+        inter_pair_mask[n_res:n_res + n_lig, :n_res] = 1
+
+        protein_tf_dim = input_protein_feats["protein_target_feat"].shape[-1]
+        ligand_tf_dim = ref_ligand_feats["ligand_target_feat"].shape[-1]
+        joined_tf_dim = protein_tf_dim + ligand_tf_dim
+
+        target_feat = torch.zeros((crop_size, joined_tf_dim + 3), dtype=torch.float32)
+        target_feat[:n_res, :protein_tf_dim] = input_protein_feats["protein_target_feat"]
+        target_feat[n_res:n_res + n_lig, protein_tf_dim:joined_tf_dim] = ref_ligand_feats["ligand_target_feat"]
+
+        target_feat[:n_res, joined_tf_dim] = 1  # Set "is_protein" flag for protein rows
+        target_feat[n_res:n_res + n_lig, joined_tf_dim + 1] = 1  # Set "is_ligand" flag for ligand rows
+        target_feat[n_res + n_lig, joined_tf_dim + 2] = 1  # Set "is_affinity" flag for affinity row
+
+        ligand_bonds_feat = torch.zeros((crop_size, crop_size, ref_ligand_feats["ligand_bonds_feat"].shape[-1]),
+                                        dtype=torch.float32)
+        ligand_bonds_feat[n_res:n_res + n_lig, n_res:n_res + n_lig] = ref_ligand_feats["ligand_bonds_feat"]
+
+        input_positions = torch.zeros((crop_size, 3), dtype=torch.float32)
+        input_positions[:n_res] = input_protein_feats["pseudo_beta"]
+        input_positions[n_res:n_res + n_lig] = ref_ligand_feats["ligand_positions"]
+
+        # Implement ligand as amino acid type 20
+        ligand_aatype = 20 * torch.ones((n_lig, ), dtype=input_protein_feats["aatype"].dtype)
+        aatype = torch.cat([input_protein_feats["aatype"], ligand_aatype], dim=0)
+
+        restype_atom14_to_atom37, restype_atom37_to_atom14, restype_atom14_mask = get_restypes(target_feat.device)
+        lig_residx_atom37_to_atom14 = restype_atom37_to_atom14[20].repeat(n_lig, 1)
+        residx_atom37_to_atom14 = torch.cat([input_protein_feats["residx_atom37_to_atom14"], lig_residx_atom37_to_atom14], dim=0)
+
+        restype_atom37_mask = get_restype_atom37_mask(target_feat.device)
+        lig_atom37_atom_exists = restype_atom37_mask[20].repeat(n_lig, 1)
+        atom37_atom_exists = torch.cat([input_protein_feats["atom37_atom_exists"], lig_atom37_atom_exists], dim=0)
 
         feats = {
-            **input_protein_feats,
             "token_mask": token_mask,
             "protein_mask": protein_mask,
-            "input_pseudo_beta": input_protein_feats["pseudo_beta"],
-            "ligand_target_feat": ligand_target_feat,
+            "ligand_mask": ligand_mask,
+            "affinity_mask": affinity_mask,
+            "structural_mask": structural_mask,
+            "inter_pair_mask": inter_pair_mask,
+
+            "target_feat": target_feat,
             "ligand_bonds_feat": ligand_bonds_feat,
-            "ref_ligand_positions": ref_ligand_positions,
-            # These are only used for reconstruction at the end of the pipeline
-            "ligand_atype": ref_ligand_feats["ligand_atype"],
-            "ligand_chirality": ref_ligand_feats["ligand_chirality"],
-            "ligand_charge": ref_ligand_feats["ligand_charge"],
-            "ligand_bonds": ref_ligand_feats["ligand_bonds"],
+            "input_positions": input_positions,
+            "protein_residue_index": self.fit_to_crop(input_protein_feats["residue_index"], crop_size, 0),
+            "aatype": self.fit_to_crop(aatype, crop_size, 0),
+            "residx_atom37_to_atom14": self.fit_to_crop(residx_atom37_to_atom14, crop_size, 0),
+            "atom37_atom_exists": self.fit_to_crop(atom37_atom_exists, crop_size, 0),
         }
+
+        if self.mode == "predict":
+            feats.update({
+                "in_chain_residue_index": self.fit_to_crop(input_protein_feats["in_chain_residue_index"], crop_size, 0),
+                "chain_index": self.fit_to_crop(input_protein_feats["chain_index"], crop_size, 0),
+                "ligand_atype": self.fit_to_crop(ref_ligand_feats["ligand_atype"], crop_size, n_res),
+                "ligand_chirality": self.fit_to_crop(ref_ligand_feats["ligand_chirality"], crop_size, n_res),
+                "ligand_charge": self.fit_to_crop(ref_ligand_feats["ligand_charge"], crop_size, n_res),
+                "ligand_bonds": self.fit_to_crop(ref_ligand_feats["ligand_bonds"], crop_size, n_res),
+            })
 
         if self.mode == 'train' or self.mode == 'eval':
             gt_pdb_path = os.path.join(parent_dir, input_data["gt_structure"])
-
             gt_protein_feats = self.data_pipeline.process_pdb(pdb_path=gt_pdb_path)
 
             gt_ligand_positions = self.data_pipeline.get_matching_positions(
                 os.path.join(parent_dir, input_data["ref_sdf"]),
                 os.path.join(parent_dir, input_data["gt_sdf"]),
             )
-            center = gt_ligand_positions.mean(dim=0)
-            gt_ligand_positions = torch.cat([gt_ligand_positions, center.unsqueeze(0)], dim=0)
 
             affinity = torch.tensor([input_data["affinity"]], dtype=torch.float32)
-            resolution = torch.tensor([input_data["resolution"]], dtype=torch.float32)
+            resolution = torch.tensor(input_data["resolution"], dtype=torch.float32)
 
             # prepare inter_contacts
-            a_expanded = gt_protein_feats["pseudo_beta"].unsqueeze(1)  # Shape: (N_prot, 1, 3)
-            b_expanded = gt_ligand_positions.unsqueeze(0)  # Shape: (1, N_lig, 3)
-            distances = torch.sqrt(torch.sum((a_expanded - b_expanded) ** 2, dim=-1))
+            expanded_prot_pos = gt_protein_feats["pseudo_beta"].unsqueeze(1)  # Shape: (N_prot, 1, 3)
+            expanded_lig_pos = gt_ligand_positions.unsqueeze(0)  # Shape: (1, N_lig, 3)
+            distances = torch.sqrt(torch.sum((expanded_prot_pos - expanded_lig_pos) ** 2, dim=-1))
             inter_contact = (distances < 5.0).float()
             binding_site_mask = inter_contact.any(dim=1).float()
 
+            inter_contact_reshaped_to_crop = torch.zeros((crop_size, crop_size), dtype=torch.float32)
+            inter_contact_reshaped_to_crop[:n_res, n_res:n_res + n_lig] = inter_contact
+            inter_contact_reshaped_to_crop[n_res:n_res + n_lig, :n_res] = inter_contact.T
+
+            # Use CA positions only
+            lig_single_res_atom37_mask = torch.zeros((37, ), dtype=torch.float32)
+            lig_single_res_atom37_mask[1] = 1
+            lig_atom37_mask = lig_single_res_atom37_mask.unsqueeze(0).expand(n_lig, -1)
+            lig_single_res_atom14_mask = torch.zeros((14, ), dtype=torch.float32)
+            lig_single_res_atom14_mask[1] = 1
+            lig_atom14_mask = lig_single_res_atom14_mask.unsqueeze(0).expand(n_lig, -1)
+
+            lig_atom37_positions = gt_ligand_positions.unsqueeze(1).expand(-1, 37, -1)
+            lig_atom37_positions = lig_atom37_positions * lig_single_res_atom37_mask.view(1, 37, 1).expand(n_lig, -1, 3)
+
+            lig_atom14_positions = gt_ligand_positions.unsqueeze(1).expand(-1, 14, -1)
+            lig_atom14_positions = lig_atom14_positions * lig_single_res_atom14_mask.view(1, 14, 1).expand(n_lig, -1, 3)
+
+            atom37_gt_positions = torch.cat([gt_protein_feats["all_atom_positions"], lig_atom37_positions], dim=0)
+            atom37_atom_exists_in_res = torch.cat([gt_protein_feats["atom37_atom_exists"], lig_atom37_mask], dim=0)
+            atom37_atom_exists_in_gt = torch.cat([gt_protein_feats["all_atom_mask"], lig_atom37_mask], dim=0)
+
+            atom14_gt_positions = torch.cat([gt_protein_feats["atom14_gt_positions"], lig_atom14_positions], dim=0)
+            atom14_atom_exists_in_res = torch.cat([gt_protein_feats["atom14_atom_exists"], lig_atom14_mask], dim=0)
+            atom14_atom_exists_in_gt = torch.cat([gt_protein_feats["atom14_gt_exists"], lig_atom14_mask], dim=0)
+
+            gt_pseudo_beta_with_lig = torch.cat([gt_protein_feats["pseudo_beta"], gt_ligand_positions], dim=0)
+            gt_pseudo_beta_with_lig_mask = torch.cat(
+                [gt_protein_feats["pseudo_beta_mask"],
+                 torch.ones((n_lig, ), dtype=gt_protein_feats["pseudo_beta_mask"].dtype)],
+                dim=0)
+
+            # IGNORES: residx_atom14_to_atom37, rigidgroups_group_exists,
+            # rigidgroups_group_is_ambiguous, pseudo_beta_mask, backbone_rigid_mask, protein_target_feat
+            gt_protein_feats = {
+                "atom37_gt_positions": atom37_gt_positions,  # torch.Size([n_struct, 37, 3])
+                "atom37_atom_exists_in_res": atom37_atom_exists_in_res,  # torch.Size([n_struct, 37])
+                "atom37_atom_exists_in_gt": atom37_atom_exists_in_gt,  # torch.Size([n_struct, 37])
+
+                "atom14_gt_positions": atom14_gt_positions,  # torch.Size([n_struct, 14, 3])
+                "atom14_atom_exists_in_res": atom14_atom_exists_in_res,  # torch.Size([n_struct, 14])
+                "atom14_atom_exists_in_gt": atom14_atom_exists_in_gt,  # torch.Size([n_struct, 14])
+
+                "gt_pseudo_beta_with_lig": gt_pseudo_beta_with_lig,  # torch.Size([n_struct, 3])
+                "gt_pseudo_beta_with_lig_mask": gt_pseudo_beta_with_lig_mask,  # torch.Size([n_struct])
+
+                # These we don't need to add the ligand to, because padding is sufficient (everything should be 0)
+                "atom14_alt_gt_positions": gt_protein_feats["atom14_alt_gt_positions"],    # torch.Size([n_res, 14, 3])
+                "atom14_alt_gt_exists": gt_protein_feats["atom14_alt_gt_exists"],  # torch.Size([n_res, 14])
+                "atom14_atom_is_ambiguous": gt_protein_feats["atom14_atom_is_ambiguous"],  # torch.Size([n_res, 14])
+                "rigidgroups_gt_frames": gt_protein_feats["rigidgroups_gt_frames"],  # torch.Size([n_res, 8, 4, 4])
+                "rigidgroups_gt_exists": gt_protein_feats["rigidgroups_gt_exists"],  # torch.Size([n_res, 8])
+                "rigidgroups_alt_gt_frames": gt_protein_feats["rigidgroups_alt_gt_frames"],  # torch.Size([n_res, 8, 4, 4])
+                "backbone_rigid_tensor": gt_protein_feats["backbone_rigid_tensor"],  # torch.Size([n_res, 4, 4])
+                "backbone_rigid_mask": gt_protein_feats["backbone_rigid_mask"],  # torch.Size([n_res])
+                "chi_angles_sin_cos": gt_protein_feats["chi_angles_sin_cos"],
+                "chi_mask": gt_protein_feats["chi_mask"],
+            }
+
+            for k, v in gt_protein_feats.items():
+                gt_protein_feats[k] = self.fit_to_crop(v, crop_size, 0)
+
             feats = {
                 **feats,
-                **gt_protein_feats,  # most of the properties are used for loss (only seq and input_psuedo_beta are not)
-                "input_pseudo_beta": input_protein_feats["pseudo_beta"],
-                "gt_ligand_positions": gt_ligand_positions,
+                **gt_protein_feats,
+                "gt_ligand_positions": self.fit_to_crop(gt_ligand_positions, crop_size, n_res),
                 "resolution": resolution,
                 "affinity": affinity,
-                "binding_site_mask": binding_site_mask,
-                "gt_inter_contacts": inter_contact
+                "seq_length": torch.tensor(n_res + n_lig),
+                "binding_site_mask": self.fit_to_crop(binding_site_mask, crop_size, 0),
+                "gt_inter_contacts": inter_contact_reshaped_to_crop,
             }
-        else:
-            pass
 
         for k, v in feats.items():
+            # print(k, v.shape)
             feats[k] = self._prepare_recycles(v, num_recycles)
 
         feats["batch_idx"] = torch.tensor(
-            [idx for _ in range(feats["aatype"].shape[-1] + feats["ligand_target_feat"].shape[-1])],
-            dtype=torch.int64,
-            device=feats["aatype"].device)
+            [idx for _ in range(crop_size)], dtype=torch.int64, device=feats["aatype"].device
+        )
 
         print("load time", round(time.time() - start_load_time, 4))
 

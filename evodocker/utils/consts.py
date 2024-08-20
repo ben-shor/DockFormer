@@ -5,7 +5,7 @@ from rdkit.Chem.rdchem import ChiralType, BondType
 #  'H': 181, 'Fe': 19, 'Se': 15, 'Ru': 10, 'Si': 5, 'Co': 4, 'Ir': 4, 'As': 2, 'Pt': 2, 'V': 1, 'Mg': 1, 'Be': 1,
 #  'Rh': 1, 'Cu': 1, 'Re': 1}
 POSSIBLE_ATOM_TYPES = ['C', 'O', 'N', 'S', 'F', 'P', 'Cl', 'Br', 'B', 'I', 'H', 'Fe', 'Se', 'Ru', 'Si', 'Co', 'Ir',
-                       'As', 'Pt', 'V', 'Mg', 'Be', 'Rh', 'Cu', 'Re', "[AFFINITY]"]
+                       'As', 'Pt', 'V', 'Mg', 'Be', 'Rh', 'Cu', 'Re']
 
 # bonds Counter({BondType.SINGLE: 366857, BondType.AROMATIC: 214238, BondType.DOUBLE: 59725, BondType.TRIPLE: 866,
 # BondType.UNSPECIFIED: 18, BondType.DATIVE: 8})

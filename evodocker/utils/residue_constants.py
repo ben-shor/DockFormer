@@ -75,6 +75,7 @@ chi_angles_atoms = {
     "TRP": [["N", "CA", "CB", "CG"], ["CA", "CB", "CG", "CD1"]],
     "TYR": [["N", "CA", "CB", "CG"], ["CA", "CB", "CG", "CD1"]],
     "VAL": [["N", "CA", "CB", "CG1"]],
+    "XXX": [],
 }
 
 # If chi angles given in fixed-length array, this matrix determines how to mask
@@ -100,6 +101,7 @@ chi_angles_mask = [
     [1.0, 1.0, 0.0, 0.0],  # TRP
     [1.0, 1.0, 0.0, 0.0],  # TYR
     [1.0, 0.0, 0.0, 0.0],  # VAL
+    [0.0, 0.0, 0.0, 0.0],  # XXX
 ]
 
 # The following chi angles are pi periodic: they can be rotated by a multiple
@@ -125,6 +127,7 @@ chi_pi_periodic = [
     [0.0, 0.0, 0.0, 0.0],  # TRP
     [0.0, 1.0, 0.0, 0.0],  # TYR
     [0.0, 0.0, 0.0, 0.0],  # VAL
+    [0.0, 0.0, 0.0, 0.0],  # XXX
     [0.0, 0.0, 0.0, 0.0],  # UNK
 ]
 
@@ -349,6 +352,11 @@ rigid_group_atom_positions = {
         ["CG1", 4, (0.540, 1.429, -0.000)],
         ["CG2", 4, (0.533, -0.776, 1.203)],
     ],
+    "XXX": [
+        ["N", 0, (0.000, 1.000, 0.000)],
+        ["CA", 0, (0.000, 0.000, 0.000)],
+        ["C", 0, (0.000, 0.000, 1.000)],
+    ],
 }
 
 # A list of atoms (excluding hydrogen) for each AA type. PDB naming convention.
@@ -401,6 +409,7 @@ residue_atoms = {
         "OH",
     ],
     "VAL": ["C", "CA", "CB", "CG1", "CG2", "N", "O"],
+    "XXX": ["N", "CA", "C"],
 }
 
 # Naming swaps for ambiguous atom names.
@@ -844,6 +853,7 @@ restype_name_to_atom14_names = {
         "",
         "",
     ],
+    "XXX": ["N", "CA", "C", "", "", "", "", "", "", "", "", "", "", ""],
     "UNK": ["", "", "", "", "", "", "", "", "", "", "", "", "", ""],
 }
 # pylint: enable=line-too-long
@@ -873,6 +883,7 @@ restypes = [
     "W",
     "Y",
     "V",
+    "Z"
 ]
 restype_order = {restype: i for i, restype in enumerate(restypes)}
 restype_num = len(restypes)  # := 20.
@@ -949,6 +960,7 @@ restype_1to3 = {
     "W": "TRP",
     "Y": "TYR",
     "V": "VAL",
+    "Z": "XXX",
 }
 
 
@@ -963,76 +975,6 @@ unk_restype = "UNK"
 
 resnames = [restype_1to3[r] for r in restypes] + [unk_restype]
 resname_to_idx = {resname: i for i, resname in enumerate(resnames)}
-
-
-# The mapping here uses hhblits convention, so that B is mapped to D, J and O
-# are mapped to X, U is mapped to C, and Z is mapped to E. Other than that the
-# remaining 20 amino acids are kept in alphabetical order.
-# There are 2 non-amino acid codes, X (representing any amino acid) and
-# "-" representing a missing amino acid in an alignment.  The id for these
-# codes is put at the end (20 and 21) so that they can easily be ignored if
-# desired.
-HHBLITS_AA_TO_ID = {
-    "A": 0,
-    "B": 2,
-    "C": 1,
-    "D": 2,
-    "E": 3,
-    "F": 4,
-    "G": 5,
-    "H": 6,
-    "I": 7,
-    "J": 20,
-    "K": 8,
-    "L": 9,
-    "M": 10,
-    "N": 11,
-    "O": 20,
-    "P": 12,
-    "Q": 13,
-    "R": 14,
-    "S": 15,
-    "T": 16,
-    "U": 1,
-    "V": 17,
-    "W": 18,
-    "X": 20,
-    "Y": 19,
-    "Z": 3,
-    "-": 21,
-}
-
-# Partial inversion of HHBLITS_AA_TO_ID.
-ID_TO_HHBLITS_AA = {
-    0: "A",
-    1: "C",  # Also U.
-    2: "D",  # Also B.
-    3: "E",  # Also Z.
-    4: "F",
-    5: "G",
-    6: "H",
-    7: "I",
-    8: "K",
-    9: "L",
-    10: "M",
-    11: "N",
-    12: "P",
-    13: "Q",
-    14: "R",
-    15: "S",
-    16: "T",
-    17: "V",
-    18: "W",
-    19: "Y",
-    20: "X",  # Includes J and O.
-    21: "-",
-}
-
-restypes_with_x_and_gap = restypes + ["X", "-"]
-MAP_HHBLITS_AATYPE_TO_OUR_AATYPE = tuple(
-    restypes_with_x_and_gap.index(ID_TO_HHBLITS_AA[i])
-    for i in range(len(restypes_with_x_and_gap))
-)
 
 
 def _make_standard_atom_mask() -> np.ndarray:
@@ -1481,7 +1423,8 @@ RESTYPE_ATOM14_IS_AMBIGUOUS = _make_restype_atom14_is_ambiguous()
 RESTYPE_RIGIDGROUP_BASE_ATOM37_IDX = _make_restype_rigidgroup_base_atom37_idx()
 
 # Create mask for existing rigid groups.
+# maybe should change RESTYPE_RIGIDGROUP_MASK to [22, 8], but currently not used?
 RESTYPE_RIGIDGROUP_MASK = np.zeros([21, 8], dtype=np.float32)
 RESTYPE_RIGIDGROUP_MASK[:, 0] = 1
 RESTYPE_RIGIDGROUP_MASK[:, 3] = 1
-RESTYPE_RIGIDGROUP_MASK[:20, 4:] = chi_angles_mask
+RESTYPE_RIGIDGROUP_MASK[:len(restypes), 4:] = chi_angles_mask

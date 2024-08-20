@@ -91,7 +91,7 @@ class SingleAttention(nn.Module):
             mask = m.new_ones(m.shape[:-1])
 
         # [*, 1, 1, N_res]
-        mask_bias = (self.inf * (mask - 1))[..., :, None, :]
+        mask_bias = (self.inf * (mask - 1))[..., :, None, None, :]
 
         if (self.pair_bias and 
             z is not None and                       # For the 

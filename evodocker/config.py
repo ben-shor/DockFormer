@@ -17,7 +17,6 @@ def model_config(
 
         pass
     elif name == "finetune_affinity":
-        # c.loss.violation.weight = 1.  # unclear if this is essential, seems to resolve itself
         c.loss.affinity2d.weight = 0.5
         c.loss.affinity1d.weight = 0.5
         c.loss.binding_site.weight = 0.5
@@ -68,37 +67,37 @@ config = mlc.ConfigDict(
         "data": {
             "common": {
                 "feat": {
-                    "aatype": [NUM_RES],
-                    "all_atom_mask": [NUM_RES, None],
-                    "all_atom_positions": [NUM_RES, None, None],
-                    "atom14_alt_gt_exists": [NUM_RES, None],
-                    "atom14_alt_gt_positions": [NUM_RES, None, None],
-                    "atom14_atom_exists": [NUM_RES, None],
-                    "atom14_atom_is_ambiguous": [NUM_RES, None],
-                    "atom14_gt_exists": [NUM_RES, None],
-                    "atom14_gt_positions": [NUM_RES, None, None],
-                    "atom37_atom_exists": [NUM_RES, None],
-                    "backbone_rigid_mask": [NUM_RES],
-                    "backbone_rigid_tensor": [NUM_RES, None, None],
-                    "chi_angles_sin_cos": [NUM_RES, None, None],
-                    "chi_mask": [NUM_RES, None],
+                    "aatype": [NUM_TOKEN],
+                    "all_atom_mask": [NUM_TOKEN, None],
+                    "all_atom_positions": [NUM_TOKEN, None, None],
+                    "atom14_alt_gt_exists": [NUM_TOKEN, None],
+                    "atom14_alt_gt_positions": [NUM_TOKEN, None, None],
+                    "atom14_atom_exists": [NUM_TOKEN, None],
+                    "atom14_atom_is_ambiguous": [NUM_TOKEN, None],
+                    "atom14_gt_exists": [NUM_TOKEN, None],
+                    "atom14_gt_positions": [NUM_TOKEN, None, None],
+                    "atom37_atom_exists": [NUM_TOKEN, None],
+                    "backbone_rigid_mask": [NUM_TOKEN],
+                    "backbone_rigid_tensor": [NUM_TOKEN, None, None],
+                    "chi_angles_sin_cos": [NUM_TOKEN, None, None],
+                    "chi_mask": [NUM_TOKEN, None],
                     "no_recycling_iters": [],
-                    "pseudo_beta": [NUM_RES, None],
-                    "pseudo_beta_mask": [NUM_RES],
-                    "residue_index": [NUM_RES],
-                    "in_chain_residue_index": [NUM_RES],
-                    "chain_index": [NUM_RES],
-                    "residx_atom14_to_atom37": [NUM_RES, None],
-                    "residx_atom37_to_atom14": [NUM_RES, None],
+                    "pseudo_beta": [NUM_TOKEN, None],
+                    "pseudo_beta_mask": [NUM_TOKEN],
+                    "residue_index": [NUM_TOKEN],
+                    "in_chain_residue_index": [NUM_TOKEN],
+                    "chain_index": [NUM_TOKEN],
+                    "residx_atom14_to_atom37": [NUM_TOKEN, None],
+                    "residx_atom37_to_atom14": [NUM_TOKEN, None],
                     "resolution": [],
-                    "rigidgroups_alt_gt_frames": [NUM_RES, None, None, None],
-                    "rigidgroups_group_exists": [NUM_RES, None],
-                    "rigidgroups_group_is_ambiguous": [NUM_RES, None],
-                    "rigidgroups_gt_exists": [NUM_RES, None],
-                    "rigidgroups_gt_frames": [NUM_RES, None, None, None],
+                    "rigidgroups_alt_gt_frames": [NUM_TOKEN, None, None, None],
+                    "rigidgroups_group_exists": [NUM_TOKEN, None],
+                    "rigidgroups_group_is_ambiguous": [NUM_TOKEN, None],
+                    "rigidgroups_gt_exists": [NUM_TOKEN, None],
+                    "rigidgroups_gt_frames": [NUM_TOKEN, None, None, None],
                     "seq_length": [],
                     "token_mask": [NUM_TOKEN],
-                    "protein_target_feat": [NUM_RES, None],
+                    "target_feat": [NUM_TOKEN, None],
                     "use_clamped_fape": [],
                 },
                 "max_recycling_iters": 1,
@@ -137,7 +136,7 @@ config = mlc.ConfigDict(
             "train": {
                 "fixed_size": True,
                 "crop": True,
-                "crop_size": 256,
+                "crop_size": 300,
                 "supervised": True,
                 "clamp_prob": 0.9,
                 "uniform_recycling": True,
@@ -169,7 +168,8 @@ config = mlc.ConfigDict(
             "structure_input_embedder": {
                 "protein_tf_dim": 20,
                 # len(POSSIBLE_ATOM_TYPES) + len(POSSIBLE_CHARGES) + len(POSSIBLE_CHIRALITIES)
-                "ligand_tf_dim": 35,
+                "ligand_tf_dim": 34,
+                "additional_tf_dim": 3, # number of classes (prot, lig, aff)
                 "ligand_bond_dim": 6,
                 "c_z": c_z,
                 "c_m": c_m,
@@ -236,10 +236,6 @@ config = mlc.ConfigDict(
                     "c_z": c_z,
                     "no_bins": aux_distogram_bins,
                 },
-                "experimentally_resolved": {
-                    "c_s": c_s,
-                    "c_out": 37,
-                },
                 "affinity_2d": {
                     "c_z": c_z,
                     "num_bins": aux_affinity_bins,
@@ -290,12 +286,6 @@ config = mlc.ConfigDict(
             },
             "positions_intra_distogram": {
                 "max_dist": 10.0,
-                "weight": 0.0,
-            },
-            "experimentally_resolved": {
-                "eps": eps,  # 1e-8,
-                "min_resolution": 0.1,
-                "max_resolution": 3.0,
                 "weight": 0.0,
             },
             "binding_site": {
@@ -352,14 +342,6 @@ config = mlc.ConfigDict(
                 "angle_norm_weight": 0.01,
                 "eps": eps,  # 1e-6,
                 "weight": 1.0,
-            },
-            "violation": {
-                "violation_tolerance_factor": 12.0,
-                "clash_overlap_tolerance": 1.5,
-                "average_clashes": False,
-                "eps": eps,  # 1e-6,
-                # TODO bshor: this should only be enabled for fine-tuning?
-                "weight": 0.00,
             },
             "chain_center_of_mass": {
                 "clamp_distance": -4.0,

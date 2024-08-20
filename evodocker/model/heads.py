@@ -37,10 +37,6 @@ class AuxiliaryHeads(nn.Module):
             **config["distogram"],
         )
 
-        self.experimentally_resolved = ExperimentallyResolvedHead(
-            **config["experimentally_resolved"],
-        )
-
         self.affinity_2d = Affinity2DPredictor(
             **config["affinity_2d"],
         )
@@ -63,7 +59,7 @@ class AuxiliaryHeads(nn.Module):
 
         self.config = config
 
-    def forward(self, outputs):
+    def forward(self, outputs, inter_mask):
         aux_out = {}
         lddt_logits = self.plddt(outputs["sm"]["single"])
         aux_out["lddt_logits"] = lddt_logits
@@ -74,22 +70,15 @@ class AuxiliaryHeads(nn.Module):
         distogram_logits = self.distogram(outputs["pair"])
         aux_out["distogram_logits"] = distogram_logits
 
-        experimentally_resolved_logits = self.experimentally_resolved(
-            outputs["single"]
-        )
-        aux_out["experimentally_resolved_logits"] = experimentally_resolved_logits
+        aux_out["inter_contact_logits"] = self.inter_contact(outputs["single"], outputs["pair"])
 
-        aux_out["inter_contact_logits"] = self.inter_contact(outputs["single"], outputs["pair"],
-                                                             outputs["start_ligand_ind"])
-
-        aux_out["affinity_2d_logits"] = self.affinity_2d(outputs["pair"], outputs["start_ligand_ind"],
-                                                         aux_out["inter_contact_logits"])
+        aux_out["affinity_2d_logits"] = self.affinity_2d(outputs["pair"], aux_out["inter_contact_logits"], inter_mask)
 
         aux_out["affinity_1d_logits"] = self.affinity_1d(outputs["single"])
 
         aux_out["affinity_cls_logits"] = self.affinity_cls(outputs["affinity_token"])
 
-        aux_out["binding_site_logits"] = self.binding_site(outputs["single"], outputs["start_ligand_ind"])
+        aux_out["binding_site_logits"] = self.binding_site(outputs["single"])
 
         return aux_out
 
@@ -104,17 +93,18 @@ class Affinity2DPredictor(nn.Module):
         self.weight_linear = Linear(self.c_z, 1)
         self.fc2 = Linear(self.c_z, num_bins)
 
-    def forward(self, z, start_ligand_ind, inter_contacts_logits):
+    def forward(self, z, inter_contacts_logits, inter_mask):
         # Extract interface part of Z
-        x = z[:, :start_ligand_ind, start_ligand_ind:, :]
-
-        x = self.fc1(x)
+        x = self.fc1(z)
 
         batch_size, N, M, _ = x.shape
         x_flat = x.view(batch_size, N * M, -1)
         inter_contacts_flat_sigmoid = torch.sigmoid(inter_contacts_logits.reshape(batch_size, N * M, 1))
         linear_weight_logits = self.weight_linear(x_flat)
-        weights = torch.softmax(linear_weight_logits * inter_contacts_flat_sigmoid, dim=1)
+
+        inter_mask_flat = inter_mask.reshape(batch_size, N * M, 1)
+
+        weights = torch.softmax(linear_weight_logits * inter_contacts_flat_sigmoid * inter_mask_flat, dim=1)
         weighted_sum = torch.sum(weights * x_flat, dim=1)
 
         affinity_logits = self.fc2(weighted_sum)
@@ -163,10 +153,9 @@ class BindingSitePredictor(nn.Module):
 
         self.linear = Linear(self.c_s, self.c_out, init="final")
 
-    def forward(self, s, start_ligand_ind):
+    def forward(self, s):
         # [*, N, C_out]
-        logits = self.linear(s[:, :start_ligand_ind, :])
-        return logits
+        return self.linear(s)
 
 
 class InterContactHead(nn.Module):
@@ -175,8 +164,8 @@ class InterContactHead(nn.Module):
         Args:
             c_z:
                 Input channel dimension
-            no_bins:
-                Number of atoms per residue (37)
+            c_out:
+                Number of bins, but since boolean should be 1
         """
         super(InterContactHead, self).__init__()
 
@@ -186,7 +175,7 @@ class InterContactHead(nn.Module):
 
         self.linear = Linear(2 * self.c_s + self.c_z, self.c_out, init="final")
 
-    def forward(self, s, z, start_ligand_ind):  # [*, N, N, C_z]
+    def forward(self, s, z):  # [*, N, N, C_z]
         # [*, N, N, no_bins]
         batch_size, n, s_dim = s.shape
 
@@ -195,11 +184,8 @@ class InterContactHead(nn.Module):
         joined = torch.cat((s_i, s_j, z), dim=-1)
 
         logits = self.linear(joined)
-        logits = logits + logits.transpose(-2, -3)
 
-        inter_logits = logits[:, :start_ligand_ind, start_ligand_ind:]
-
-        return inter_logits
+        return logits
 
 
 class PerResidueLDDTCaPredictor(nn.Module):
@@ -270,37 +256,3 @@ class DistogramHead(nn.Module):
                 return self._forward(z.float())
         else:
             return self._forward(z)
-
-
-class ExperimentallyResolvedHead(nn.Module):
-    """
-    For use in computation of "experimentally resolved" loss, subsection
-    1.9.10
-    """
-
-    def __init__(self, c_s, c_out, **kwargs):
-        """
-        Args:
-            c_s:
-                Input channel dimension
-            c_out:
-                Number of distogram bins
-        """
-        super(ExperimentallyResolvedHead, self).__init__()
-
-        self.c_s = c_s
-        self.c_out = c_out
-
-        self.linear = Linear(self.c_s, self.c_out, init="final")
-
-    def forward(self, s):
-        """
-        Args:
-            s:
-                [*, N_res, C_s] single embedding
-        Returns:
-            [*, N, C_out] logits
-        """
-        # [*, N, C_out]
-        logits = self.linear(s)
-        return logits

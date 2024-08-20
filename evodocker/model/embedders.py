@@ -34,6 +34,7 @@ class StructureInputEmbedder(nn.Module):
         self,
         protein_tf_dim: int,
         ligand_tf_dim: int,
+        additional_tf_dim: int,
         ligand_bond_dim: int,
         c_z: int,
         c_m: int,
@@ -60,20 +61,17 @@ class StructureInputEmbedder(nn.Module):
         """
         super(StructureInputEmbedder, self).__init__()
 
-        self.protein_tf_dim = protein_tf_dim
-        self.ligand_tf_dim = ligand_tf_dim
+        self.tf_dim = protein_tf_dim + ligand_tf_dim + additional_tf_dim
+        self.pair_tf_dim = ligand_bond_dim
 
         self.c_z = c_z
         self.c_m = c_m
 
-        self.protein_linear_tf_z_i = Linear(protein_tf_dim, c_z)
-        self.protein_linear_tf_z_j = Linear(protein_tf_dim, c_z)
-        self.protein_linear_tf_m = Linear(protein_tf_dim, c_m)
+        self.linear_tf_z_i = Linear(self.tf_dim, c_z)
+        self.linear_tf_z_j = Linear(self.tf_dim, c_z)
+        self.linear_tf_m = Linear(self.tf_dim, c_m)
 
-        self.ligand_linear_tf_z_i = Linear(ligand_tf_dim, c_z)
-        self.ligand_linear_tf_z_j = Linear(ligand_tf_dim, c_z)
         self.ligand_linear_bond_z = Linear(ligand_bond_dim, c_z)
-        self.ligand_linear_tf_m = Linear(ligand_tf_dim, c_m)
 
         # RPE stuff
         self.relpos_k = relpos_k
@@ -116,18 +114,7 @@ class StructureInputEmbedder(nn.Module):
         d = d.to(ri.dtype)
         return self.linear_relpos(d)
 
-    def _do_recycle(self, m, z, x, min_bin, max_bin, no_bins, recycling_linear, inplace_safe=False):
-        m_update = self.layer_norm_m(m)
-        if (inplace_safe):
-            m.copy_(m_update)
-            m_update = m
-
-        # [*, N, N, C_z]
-        z_update = self.layer_norm_z(z)
-        if (inplace_safe):
-            z.copy_(z_update)
-            z_update = z
-
+    def _get_binned_distogram(self, x, min_bin, max_bin, no_bins, recycling_linear):
         # This squared method might become problematic in FP16 mode.
         bins = torch.linspace(
             min_bin,
@@ -146,20 +133,17 @@ class StructureInputEmbedder(nn.Module):
         # [*, N, N, no_bins]
         d = ((d > squared_bins) * (d < upper)).type(x.dtype)
 
-        # [*, N, N, C_z]
-        d = recycling_linear(d)
-        z_update = add(z_update, d, inplace_safe)
-
-        return m_update, z_update
+        return recycling_linear(d)
 
     def forward(
         self,
-        protein_target_feat: torch.Tensor,
-        residue_index: torch.Tensor,
-        input_protein_coords: torch.Tensor,
-        ref_ligand_positions: torch.Tensor,
-        ligand_target_feat: torch.Tensor,
+        token_mask: torch.Tensor,
+        protein_mask: torch.Tensor,
+        ligand_mask: torch.Tensor,
+        target_feat: torch.Tensor,
         ligand_bonds_feat: torch.Tensor,
+        input_positions: torch.Tensor,
+        protein_residue_index: torch.Tensor,
         inplace_safe: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -180,65 +164,45 @@ class StructureInputEmbedder(nn.Module):
                 [*, N_res + N_lig_atoms, N_res + N_lig_atoms, C_z] pair embedding
 
         """
-        N_res = residue_index.shape[-1]
-        N_lig_atoms = ligand_bonds_feat.shape[-2]
-        N_batch = protein_target_feat.shape[0]
-        device = protein_target_feat.device
+        device = token_mask.device
+        pair_protein_mask = protein_mask[..., None] * protein_mask[..., None, :]
+        pair_ligand_mask = ligand_mask[..., None] * ligand_mask[..., None, :]
 
         # Single representation embedding - Algorithm 3
-        protein_tf_m = self.protein_linear_tf_m(protein_target_feat)
-        ligand_tf_m = self.ligand_linear_tf_m(ligand_target_feat)
+        tf_m = self.linear_tf_m(target_feat)
+        tf_m = self.layer_norm_m(tf_m)  # previously this happend in the do_recycle function
 
         # Pair representation
         # protein pair embedding - Algorithm 3
         # [*, N_res, c_z]
-        prot_tf_emb_i = self.protein_linear_tf_z_i(protein_target_feat)
-        prot_tf_emb_j = self.protein_linear_tf_z_j(protein_target_feat)
+        tf_emb_i = self.linear_tf_z_i(target_feat)
+        tf_emb_j = self.linear_tf_z_j(target_feat)
 
-        # [*, N_res, N_res, c_z]
-        protein_pair_emb = self.relpos(residue_index.type(prot_tf_emb_i.dtype))
-        protein_pair_emb = add(protein_pair_emb,
-            prot_tf_emb_i[..., None, :],
-            inplace=inplace_safe
-        )
-        protein_pair_emb = add(protein_pair_emb,
-            prot_tf_emb_j[..., None, :, :],
-            inplace=inplace_safe
-        )
-        protein_tf_m, protein_pair_emb = self._do_recycle(protein_tf_m, protein_pair_emb, input_protein_coords,
-                                                          self.prot_min_bin, self.prot_max_bin, self.prot_no_bins,
-                                                          self.prot_recycling_linear, inplace_safe)
+        pair_emb = torch.zeros(*pair_protein_mask.shape, self.c_z, device=device)
+        pair_emb = add(pair_emb, tf_emb_i[..., None, :], inplace=inplace_safe)
+        pair_emb = add(pair_emb, tf_emb_j[..., None, :, :], inplace=inplace_safe)
 
-        # ligand pair embedding
-        ligand_pair_emb = self.ligand_linear_bond_z(ligand_bonds_feat)
+        # Apply relpos
+        relpos = self.relpos(protein_residue_index.type(tf_emb_i.dtype))
+        pair_emb += pair_protein_mask[..., None] * relpos
 
-        lig_tf_emb_i = self.ligand_linear_tf_z_i(ligand_target_feat)
-        lig_tf_emb_j = self.ligand_linear_tf_z_j(ligand_target_feat)
+        # apply ligand bonds
+        ligand_bonds = self.ligand_linear_bond_z(ligand_bonds_feat)
+        pair_emb += pair_ligand_mask[..., None] * ligand_bonds
 
-        ligand_pair_emb = add(ligand_pair_emb,
-                              lig_tf_emb_i[..., None, :],
-                              inplace=inplace_safe
-                              )
-        ligand_pair_emb = add(ligand_pair_emb,
-                              lig_tf_emb_j[..., None, :, :],
-                              inplace=inplace_safe
-                              )
+        # before recycles, do z_norm, this previously was a part of the recycles
+        pair_emb = self.layer_norm_z(pair_emb)
 
-        ligand_tf_m, ligand_pair_emb = self._do_recycle(ligand_tf_m, ligand_pair_emb, ref_ligand_positions,
-                                                        self.lig_min_bin, self.lig_max_bin, self.lig_no_bins,
-                                                        self.lig_recycling_linear, inplace_safe)
+        # apply protein recycle
+        prot_distogram_embed = self._get_binned_distogram(input_positions, self.prot_min_bin, self.prot_max_bin,
+                                                          self.prot_no_bins, self.prot_recycling_linear)
 
-        # joint representation embedding
-        joint1 = prot_tf_emb_i.unsqueeze(2) + lig_tf_emb_j.unsqueeze(1)
-        joint2 = (prot_tf_emb_j.unsqueeze(2) + lig_tf_emb_i.unsqueeze(1)).transpose(1, 2)
+        pair_emb = add(pair_emb, prot_distogram_embed * pair_protein_mask.unsqueeze(-1), inplace_safe)
 
-        # Merge protein and ligand embeddings
-        tf_m = torch.cat([protein_tf_m, ligand_tf_m], dim=-2)
-        pair_emb = torch.zeros(N_batch, N_res + N_lig_atoms, N_res + N_lig_atoms, self.c_z, device=device)
-        pair_emb[..., :N_res, :N_res, :] = protein_pair_emb
-        pair_emb[..., N_res:, N_res:, :] = ligand_pair_emb
-        pair_emb[..., :N_res, N_res:, :] = joint1
-        pair_emb[..., N_res:, :N_res, :] = joint2
+        # apply ligand recycle
+        lig_distogram_embed = self._get_binned_distogram(input_positions, self.lig_min_bin, self.lig_max_bin,
+                                                         self.lig_no_bins, self.lig_recycling_linear)
+        pair_emb = add(pair_emb, lig_distogram_embed * pair_ligand_mask.unsqueeze(-1), inplace_safe)
 
         return tf_m, pair_emb
 

@@ -33,18 +33,19 @@ from evodocker.utils.tensor_utils import (
 
 
 def pseudo_beta_fn(aatype, all_atom_positions, all_atom_masks):
-    is_gly = aatype == rc.restype_order["G"]
+    # rc.restype_order["X"] defines a ligand, and the atom position used is the CA
+    is_gly_or_lig = (aatype == rc.restype_order["G"]) | (aatype == rc.restype_order["Z"])
     ca_idx = rc.atom_order["CA"]
     cb_idx = rc.atom_order["CB"]
     pseudo_beta = torch.where(
-        is_gly[..., None].expand(*((-1,) * len(is_gly.shape)), 3),
+        is_gly_or_lig[..., None].expand(*((-1,) * len(is_gly_or_lig.shape)), 3),
         all_atom_positions[..., ca_idx, :],
         all_atom_positions[..., cb_idx, :],
     )
 
     if all_atom_masks is not None:
         pseudo_beta_mask = torch.where(
-            is_gly,
+            is_gly_or_lig,
             all_atom_masks[..., ca_idx],
             all_atom_masks[..., cb_idx],
         )

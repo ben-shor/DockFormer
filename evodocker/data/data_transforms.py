@@ -22,6 +22,7 @@ import torch
 
 from evodocker.config import NUM_RES
 from evodocker.utils import residue_constants as rc
+from evodocker.utils.residue_constants import restypes
 from evodocker.utils.rigid_utils import Rotation, Rigid
 from evodocker.utils.geometry.rigid_matrix_vector import Rigid3Array
 from evodocker.utils.geometry.rotation_matrix import Rot3Array
@@ -131,8 +132,7 @@ def select_feat(protein, feature_list):
     return {k: v for k, v in protein.items() if k in feature_list}
 
 
-def make_atom14_masks(protein):
-    """Construct denser atom positions (14 dimensions instead of 37)."""
+def get_restypes(device):
     restype_atom14_to_atom37 = []
     restype_atom37_to_atom14 = []
     restype_atom14_mask = []
@@ -162,18 +162,40 @@ def make_atom14_masks(protein):
     restype_atom14_to_atom37 = torch.tensor(
         restype_atom14_to_atom37,
         dtype=torch.int32,
-        device=protein["aatype"].device,
+        device=device,
     )
     restype_atom37_to_atom14 = torch.tensor(
         restype_atom37_to_atom14,
         dtype=torch.int32,
-        device=protein["aatype"].device,
+        device=device,
     )
     restype_atom14_mask = torch.tensor(
         restype_atom14_mask,
         dtype=torch.float32,
-        device=protein["aatype"].device,
+        device=device,
     )
+
+    return restype_atom14_to_atom37, restype_atom37_to_atom14, restype_atom14_mask
+
+
+def get_restype_atom37_mask(device):
+    # create the corresponding mask
+    restype_atom37_mask = torch.zeros(
+        [len(restypes) + 1, 37], dtype=torch.float32, device=device
+    )
+    for restype, restype_letter in enumerate(rc.restypes):
+        restype_name = rc.restype_1to3[restype_letter]
+        atom_names = rc.residue_atoms[restype_name]
+        for atom_name in atom_names:
+            atom_type = rc.atom_order[atom_name]
+            restype_atom37_mask[restype, atom_type] = 1
+    return restype_atom37_mask
+
+
+def make_atom14_masks(protein):
+    """Construct denser atom positions (14 dimensions instead of 37)."""
+    restype_atom14_to_atom37, restype_atom37_to_atom14, restype_atom14_mask = get_restypes(protein["aatype"].device)
+
     protein_aatype = protein['aatype'].to(torch.long)
 
     # create the mapping for (residx, atom14) --> atom37, i.e. an array
@@ -188,16 +210,7 @@ def make_atom14_masks(protein):
     residx_atom37_to_atom14 = restype_atom37_to_atom14[protein_aatype]
     protein["residx_atom37_to_atom14"] = residx_atom37_to_atom14.long()
 
-    # create the corresponding mask
-    restype_atom37_mask = torch.zeros(
-        [21, 37], dtype=torch.float32, device=protein["aatype"].device
-    )
-    for restype, restype_letter in enumerate(rc.restypes):
-        restype_name = rc.restype_1to3[restype_letter]
-        atom_names = rc.residue_atoms[restype_name]
-        for atom_name in atom_names:
-            atom_type = rc.atom_order[atom_name]
-            restype_atom37_mask[restype, atom_type] = 1
+    restype_atom37_mask = get_restype_atom37_mask(protein["aatype"].device)
 
     residx_atom37_mask = restype_atom37_mask[protein_aatype]
     protein["atom37_atom_exists"] = residx_atom37_mask
@@ -333,7 +346,7 @@ def atom37_to_frames(protein, eps=1e-8):
     )
     restype_rigidgroup_mask[..., 0] = 1
     restype_rigidgroup_mask[..., 3] = 1
-    restype_rigidgroup_mask[..., :20, 4:] = all_atom_mask.new_tensor(
+    restype_rigidgroup_mask[..., :len(restypes), 4:] = all_atom_mask.new_tensor(
         rc.chi_angles_mask
     )
 
@@ -716,29 +729,3 @@ def random_crop_to_size(
     
     return protein
 
-
-@curry1
-def make_fixed_size(protein, config, num_res=0):
-    pad_size_map = {
-        NUM_RES: num_res,
-    }
-    shape_schema = config.common.feat
-
-    for k, v in protein.items():
-        # Don't transfer this to the accelerator.
-        shape = list(v.shape)
-        schema = shape_schema[k]
-        msg = "Rank mismatch between shape and shape schema for"
-        assert len(shape) == len(schema), f"{msg} {k}: {shape} vs {schema}"
-        pad_size = [
-            pad_size_map.get(s2, None) or s1 for (s1, s2) in zip(shape, schema)
-        ]
-
-        padding = [(0, p - v.shape[i]) for i, p in enumerate(pad_size)]
-        padding.reverse()
-        padding = list(itertools.chain(*padding))
-        if padding:
-            protein[k] = torch.nn.functional.pad(v, padding)
-            protein[k] = torch.reshape(protein[k], pad_size)
-
-    return protein
