@@ -208,7 +208,6 @@ class AlphaFold(nn.Module):
 
         outputs["pair"] = z
         outputs["single"] = s
-        outputs["affinity_token"] = s[..., -1:, :]
 
         del z
 
@@ -312,7 +311,7 @@ class AlphaFold(nn.Module):
 
         outputs["num_recycles"] = torch.tensor(num_recycles, device=feats["aatype"].device)
 
-        # Run auxiliary heads, remove the recycling dimension inter_pair_mask
-        outputs.update(self.aux_heads(outputs, batch["inter_pair_mask"][..., 0]))
+        # Run auxiliary heads, remove the recycling dimension batch properties
+        outputs.update(self.aux_heads(outputs, batch["inter_pair_mask"][..., 0], batch["affinity_mask"][..., 0]))
 
         return outputs

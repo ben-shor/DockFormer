@@ -161,9 +161,9 @@ class ModelWrapper(pl.LightningModule):
         protein_pred_coords_masked_ca = protein_pred_coords_masked[..., ca_pos, :]
         protein_atom_mask_ca = protein_all_atom_mask[..., ca_pos]
 
-        ligand_gt_coords_single_atom = ligand_gt_coords[:, ca_pos, :]
-        ligand_pred_coords_single_atom = ligand_pred_coords[:, ca_pos, :]
-        ligand_gt_mask_single_atom = ligand_all_atom_mask[:, ca_pos]
+        ligand_gt_coords_single_atom = ligand_gt_coords[..., ca_pos, :]
+        ligand_pred_coords_single_atom = ligand_pred_coords[..., ca_pos, :]
+        ligand_gt_mask_single_atom = ligand_all_atom_mask[..., ca_pos]
     
         lddt_ca_score = lddt_ca(
             protein_pred_coords,

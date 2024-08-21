@@ -179,6 +179,6 @@ class DataPipeline:
         #         if abs(dist_ref - dist_gt) > 1.0:
         #             print(f"Distance mismatch {i} {j} {dist_ref} {dist_gt}")
 
-        return torch.tensor(gt_positions).float()
+        return torch.tensor(np.array(gt_positions)) .float()
 
 

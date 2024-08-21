@@ -59,7 +59,7 @@ class AuxiliaryHeads(nn.Module):
 
         self.config = config
 
-    def forward(self, outputs, inter_mask):
+    def forward(self, outputs, inter_mask, affinity_mask):
         aux_out = {}
         lddt_logits = self.plddt(outputs["sm"]["single"])
         aux_out["lddt_logits"] = lddt_logits
@@ -76,7 +76,7 @@ class AuxiliaryHeads(nn.Module):
 
         aux_out["affinity_1d_logits"] = self.affinity_1d(outputs["single"])
 
-        aux_out["affinity_cls_logits"] = self.affinity_cls(outputs["affinity_token"])
+        aux_out["affinity_cls_logits"] = self.affinity_cls(outputs["single"], affinity_mask)
 
         aux_out["binding_site_logits"] = self.binding_site(outputs["single"])
 
@@ -93,19 +93,24 @@ class Affinity2DPredictor(nn.Module):
         self.weight_linear = Linear(self.c_z, 1)
         self.fc2 = Linear(self.c_z, num_bins)
 
-    def forward(self, z, inter_contacts_logits, inter_mask):
+    def forward(self, z, inter_contacts_logits, inter_pair_mask):
         # Extract interface part of Z
-        x = self.fc1(z)
+        x = self.fc1(z)  # [*, N, N, c_z]
 
         batch_size, N, M, _ = x.shape
-        x_flat = x.view(batch_size, N * M, -1)
-        inter_contacts_flat_sigmoid = torch.sigmoid(inter_contacts_logits.reshape(batch_size, N * M, 1))
-        linear_weight_logits = self.weight_linear(x_flat)
 
-        inter_mask_flat = inter_mask.reshape(batch_size, N * M, 1)
+        inter_contacts_sigmoid = torch.sigmoid(inter_contacts_logits)  # [*, N, N, 1]
+        linear_weight_sigmoid = torch.sigmoid(self.weight_linear(x))  # [*, N, N, 1]
+        simple_weights = inter_contacts_sigmoid * linear_weight_sigmoid  # [*, N, N, 1]
 
-        weights = torch.softmax(linear_weight_logits * inter_contacts_flat_sigmoid * inter_mask_flat, dim=1)
-        weighted_sum = torch.sum(weights * x_flat, dim=1)
+        flat_weights = simple_weights.reshape(batch_size, N*M, -1)  # [*, N*M, 1]
+        flat_x = x.reshape(batch_size, N*M, -1)  # [*, N*M, c_z]
+        flat_inter_pair_mask = inter_pair_mask.reshape(batch_size, N*M, 1)
+
+        masked_values = flat_weights.masked_fill(~(flat_inter_pair_mask.bool()), float('-inf'))  # [*, N*N, 1]
+        weights = torch.nn.functional.softmax(masked_values, dim=1)  # [*, N*N, 1]
+        weights = torch.nan_to_num(weights, nan=0.0)  # [*, N*N, 1]
+        weighted_sum = torch.sum((weights * flat_x).reshape(batch_size, N*M, -1), dim=1)  # [*, c_z]
 
         affinity_logits = self.fc2(weighted_sum)
 
@@ -140,8 +145,9 @@ class AffinityClsTokenPredictor(nn.Module):
         self.c_s = c_s
         self.linear = Linear(self.c_s, num_bins, init="final")
 
-    def forward(self, s):
-        return self.linear(s)
+    def forward(self, s, affinity_mask):
+        affinity_tokens = (s * affinity_mask.unsqueeze(-1)).sum(dim=1)
+        return self.linear(affinity_tokens)
 
 
 class BindingSitePredictor(nn.Module):

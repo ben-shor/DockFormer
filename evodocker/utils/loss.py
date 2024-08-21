@@ -622,15 +622,19 @@ def distogram_loss(
 
 def inter_contact_loss(
     logits: torch.Tensor,
-    gt_inter_contacts,
+    gt_inter_contacts: torch.Tensor,
+    inter_pair_mask: torch.Tensor,
     pos_class_weight: float = 200.0,
     contact_distance: float = 5.0,
     **kwargs,
 ):
-    inter_logits = logits.squeeze(-1)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=logits.new_tensor([pos_class_weight]))
-    loss = criterion(inter_logits, gt_inter_contacts)
-    return loss
+    logits = logits.squeeze(-1)
+    bce_loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, gt_inter_contacts, reduction='none',
+                                                                    pos_weight=logits.new_tensor([pos_class_weight]))
+    masked_loss = bce_loss * inter_pair_mask
+    final_loss = masked_loss.sum() / inter_pair_mask.sum()
+
+    return final_loss
 
 
 def affinity_loss(
@@ -719,7 +723,6 @@ def positions_intra_ligand_distogram_loss(
 
     pred_dists = pred_dists.clamp(max=max_dist ** 2)
     gt_dists = gt_dists.clamp(max=max_dist ** 2)
-
 
     dists_diff = torch.abs(pred_dists - gt_dists) / (length_scale ** 2)
     dists_diff = dists_diff * intra_ligand_pair_mask.unsqueeze(-1)
