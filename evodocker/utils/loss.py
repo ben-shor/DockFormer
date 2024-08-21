@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import time
 
 import ml_collections
 import numpy as np
@@ -1112,7 +1113,9 @@ class AlphaFoldLoss(nn.Module):
 
         cum_loss = 0.
         losses = {}
+        loss_time_took = {}
         for loss_name, loss_fn in loss_fns.items():
+            start_time = time.time()
             weight = self.config[loss_name].weight
             loss = loss_fn()
             if torch.isnan(loss) or torch.isinf(loss):
@@ -1124,7 +1127,10 @@ class AlphaFoldLoss(nn.Module):
                 loss = loss.new_tensor(0., requires_grad=True)
             cum_loss = cum_loss + weight * loss
             losses[loss_name] = loss.detach().clone()
+            loss_time_took[loss_name] = time.time() - start_time
         losses["unscaled_loss"] = cum_loss.detach().clone()
+        print("loss took: ", round(time.time() % 10000, 3),
+              sorted(loss_time_took.items(), key=lambda x: x[1], reverse=True))
 
         # Scale the loss by the square root of the minimum of the crop size and
         # the (average) sequence length. See subsection 1.9.

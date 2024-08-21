@@ -45,8 +45,14 @@ def drmsd_np(structure_1, structure_2, mask=None):
     return drmsd(structure_1, structure_2, mask)
 
 
-def rmsd(structure_1, structure_2):
-    return torch.sqrt(torch.mean((structure_1 - structure_2) ** 2))
+def rmsd(structure_1, structure_2, mask=None):
+
+    squared_dists = torch.sum((structure_1 - structure_2) ** 2, dim=-1)
+    if mask is None:
+        return torch.sqrt(torch.sum(squared_dists, dim=1) / squared_dists.shape[-1])
+    squared_dists = squared_dists * mask
+    n = torch.sum(mask, dim=1)
+    return torch.sqrt(torch.sum(squared_dists, dim=1) / n)
 
 
 def gdt(p1, p2, mask, cutoffs):

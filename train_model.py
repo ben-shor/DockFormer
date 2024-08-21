@@ -12,6 +12,7 @@ import lightning.pytorch as pl
 import torch
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
+from lightning.pytorch.profilers import AdvancedProfiler
 
 from evodocker.config import model_config
 from evodocker.data.data_modules import OpenFoldDataModule
@@ -86,11 +87,13 @@ class ModelWrapper(pl.LightningModule):
         # ground_truth = batch.pop('gt_features', None)
 
         # Run the model
+        print("running model", round(time.time() % 10000, 3), flush=True)
         outputs = self(batch)
 
         # Remove the recycling dimension
         batch = tensor_tree_map(lambda t: t[..., -1], batch)
 
+        print("running loss", round(time.time() % 10000, 3), flush=True)
         # Compute loss
         loss, loss_breakdown = self.loss(
             outputs, batch, _return_breakdown=True
@@ -98,6 +101,8 @@ class ModelWrapper(pl.LightningModule):
 
         # Log it
         self._log(loss_breakdown, batch, outputs)
+        print("loss done", round(time.time() % 10000, 3), flush=True)
+
 
         return loss
 
@@ -242,11 +247,13 @@ class ModelWrapper(pl.LightningModule):
             metrics["gdt_ha"] = gdt_ha_score
 
             superimposed_ligand_coords = ligand_pred_coords_single_atom @ rots + transs[:, None, :]
-            metrics["ligand_alignment_rmsd"] = rmsd(ligand_gt_coords_single_atom, superimposed_ligand_coords)
-            metrics["ligand_alignment_rmsd_under_2"] = torch.mean((metrics["ligand_alignment_rmsd"] < 2).float())
-            metrics["ligand_alignment_rmsd_under_5"] = torch.mean((metrics["ligand_alignment_rmsd"] < 5).float())
+            ligand_alignment_rmsds = rmsd(ligand_gt_coords_single_atom, superimposed_ligand_coords,
+                                          mask=ligand_gt_mask_single_atom)
+            metrics["ligand_alignment_rmsd"] = ligand_alignment_rmsds.mean()
+            metrics["ligand_alignment_rmsd_under_2"] = torch.mean((ligand_alignment_rmsds < 2).float())
+            metrics["ligand_alignment_rmsd_under_5"] = torch.mean((ligand_alignment_rmsds < 5).float())
 
-            print("ligand rmsd:", metrics["ligand_alignment_rmsd"])
+            print("ligand rmsd:", ligand_alignment_rmsds)
 
         return metrics
 
@@ -321,6 +328,8 @@ def train(override_config_path: str):
     device_name = "cuda" if torch.cuda.is_available() else "cpu"
     device_name = "mps" if device_name == "cpu" and torch.backends.mps.is_available() else device_name
     model_module = ModelWrapper(config)
+
+    # device_name = "cpu"
 
     # for debugging memory:
     # torch.cuda.memory._record_memory_history()
@@ -399,6 +408,7 @@ def train(override_config_path: str):
         check_val_every_n_epoch=run_config.get("check_val_every_n_epoch", 10),
         callbacks=callbacks,
         logger=loggers,
+        # profiler=AdvancedProfiler(),
     )
 
     trainer.fit(
@@ -406,6 +416,9 @@ def train(override_config_path: str):
         datamodule=data_module,
         ckpt_path=ckpt_path,
     )
+
+    # profiler_results = trainer.profiler.summary()
+    # print(profiler_results)
 
     # torch.cuda.memory._dump_snapshot("my_train_snapshot.pickle")
     # view on https://pytorch.org/memory_viz
