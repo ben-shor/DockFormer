@@ -957,13 +957,19 @@ def compute_renamed_ground_truth(
 def binding_site_loss(
     logits: torch.Tensor,
     binding_site_mask: torch.Tensor,
+    protein_mask: torch.Tensor,
     pos_class_weight: float,
     **kwargs,
 ) -> torch.Tensor:
     binding_site_mask = binding_site_mask.unsqueeze(-1)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=logits.new_tensor([pos_class_weight]))
-    loss = criterion(logits, binding_site_mask)
-    return loss
+
+    logits = logits.squeeze(-1)
+    bce_loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, binding_site_mask, reduction='none',
+                                                                    pos_weight=logits.new_tensor([pos_class_weight]))
+    masked_loss = bce_loss * protein_mask
+    final_loss = masked_loss.sum() / protein_mask.sum()
+
+    return final_loss
 
 
 def chain_center_of_mass_loss(
