@@ -60,7 +60,7 @@ def override_config(base_config, overriding_config):
 
 
 def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_relaxation=True,
-                  long_sequence_inference=False):
+                  long_sequence_inference=False, skip_exists=False):
     config_preset = "initial_training"
     save_outputs = False
     device_name = "cuda" if torch.cuda.is_available() else "cpu"
@@ -88,7 +88,7 @@ def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_re
         tag = dataset.get_metadata_for_idx(i)["input_name"]
         output_name = f"{tag}_predicted"
         protein_output_path = os.path.join(output_directory, f'{output_name}_protein.pdb')
-        if os.path.exists(protein_output_path):
+        if os.path.exists(protein_output_path) and skip_exists:
             print("skipping exists", output_name)
             continue
 
@@ -118,22 +118,22 @@ def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_re
         protein_binding_output_path = os.path.join(output_directory, f'{output_name}_protein_affinity.pdb')
         ligand_output_path = os.path.join(output_directory, f'{output_name}_ligand.sdf')
 
-        ligand_positions = out["sm"]["ligand_atom_positions"][-1][0]
-        # remove affinity token
-        ligand_positions = ligand_positions[:-1]
+        protein_mask = processed_feature_dict["protein_mask"][0].astype(bool)
+        ligand_mask = processed_feature_dict["ligand_mask"][0].astype(bool)
+
 
         save_output_structure(
-            aatype=processed_feature_dict["aatype"][0],
-            residue_index=processed_feature_dict["in_chain_residue_index"][0],
-            chain_index=processed_feature_dict["chain_index"][0],
-            plddt=out["plddt"][0],
-            final_atom_protein_positions=out["final_atom_positions"][0],
-            final_atom_mask=out["final_atom_mask"][0],
-            ligand_atype=processed_feature_dict["ligand_atype"][0][0],
-            ligand_chiralities=processed_feature_dict["ligand_chirality"][0][0],
-            ligand_charges=processed_feature_dict["ligand_charge"][0][0],
-            ligand_bonds=processed_feature_dict["ligand_bonds"][0][0],
-            final_ligand_atom_positions=ligand_positions,
+            aatype=processed_feature_dict["aatype"][0][protein_mask],
+            residue_index=processed_feature_dict["in_chain_residue_index"][0][protein_mask],
+            chain_index=processed_feature_dict["chain_index"][0][protein_mask],
+            plddt=out["plddt"][0][protein_mask],
+            final_atom_protein_positions=out["final_atom_positions"][0][protein_mask],
+            final_atom_mask=out["final_atom_mask"][0][protein_mask],
+            ligand_atype=processed_feature_dict["ligand_atype"][0][ligand_mask].astype(int),
+            ligand_chiralities=processed_feature_dict["ligand_chirality"][0][ligand_mask].astype(int),
+            ligand_charges= processed_feature_dict["ligand_charge"][0][ligand_mask].astype(int),
+            ligand_bonds=processed_feature_dict["ligand_bonds"][0][ligand_mask].astype(int),
+            final_ligand_atom_positions=out["final_atom_positions"][0][ligand_mask][:, 1, :], # only ca index
             protein_output_path=protein_output_path,
             ligand_output_path=ligand_output_path,
             protein_affinity_output_path=protein_binding_output_path,
@@ -176,5 +176,7 @@ if __name__ == "__main__":
             options["skip_relaxation"] = False
         if "--long" in sys.argv:
             options["long_sequence_inference"] = True
+        if "--allow-skip" in sys.argv:
+            options["skip_exists"] = True
 
     run_on_folder(input_dir, output_dir, config_path, **options)

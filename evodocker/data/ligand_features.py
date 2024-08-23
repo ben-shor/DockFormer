@@ -48,17 +48,12 @@ def make_ligand_features(ligand: Chem.Mol) -> FeatureTensorDict:
         ligand_bonds.append((atom1_idx, atom2_idx, bond_features["bond_type"]))
         ligand_bonds_feat[atom1_idx, atom2_idx, bond_features["bond_type"]] = 1
 
-    batched_atom_types = atom_types[None]
-    batched_atom_charges = atom_charges[None]
-    batched_atom_chiralities = atom_chiralities[None]
-    batched_ligand_bonds = torch.tensor(ligand_bonds, dtype=torch.int64)[None]
-
     return {
         # These are used for reconstruction at the end of the pipeline
-        "ligand_atype": batched_atom_types,
-        "ligand_charge": batched_atom_charges,
-        "ligand_chirality": batched_atom_chiralities,
-        "ligand_bonds": batched_ligand_bonds,
+        "ligand_atype": atom_types,
+        "ligand_charge": atom_charges,
+        "ligand_chirality": atom_chiralities,
+        "ligand_bonds": torch.tensor(ligand_bonds, dtype=torch.int64),
         # these are the actual features
         "ligand_target_feat": ligand_target_feat.float(),
         "ligand_bonds_feat": ligand_bonds_feat.float(),

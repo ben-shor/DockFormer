@@ -81,7 +81,6 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         input_structure = self.data_pipeline.process_pdb(pdb_path=input_pdb_path)
         metadata = {
             "resolution": input_data.get("resolution", 99.0),
-            "seq": input_structure["sequence"][0].decode("ascii"),
             "input_path": input_path,
             "input_name": os.path.basename(input_path).split(".")[0],
         }
@@ -377,23 +376,6 @@ def resolution_filter(resolution: int, max_resolution: float) -> bool:
     return resolution is not None and resolution <= max_resolution
 
 
-def aa_count_filter(seqs: list, max_single_aa_prop: float) -> bool:
-    """Check if any single amino acid accounts for more than max_single_aa_prop percent of the sequence(s)"""
-    counts = {}
-    for seq in seqs:
-        for aa in seq:
-            counts.setdefault(aa, 0)
-            if aa not in restypes:
-                return False
-            else:
-                counts[aa] += 1
-
-    total_len = sum([len(i) for i in seqs])
-    largest_aa_count = max(counts.values())
-    largest_single_aa_prop = largest_aa_count / total_len
-    return largest_single_aa_prop <= max_single_aa_prop
-
-
 def all_seq_len_filter(seqs: list, minimum_number_of_residues: int) -> bool:
     """Check if the total combined sequence lengths are >= minimum_numer_of_residues"""
     total_len = sum([len(i) for i in seqs])
@@ -433,13 +415,11 @@ class OpenFoldDataset(torch.utils.data.Dataset):
     ) -> bool:
         # Hard filters
         resolution = cache_entry["resolution"]
-        seqs = [cache_entry["seq"]]
 
         return all([
             resolution_filter(resolution=resolution,
-                              max_resolution=max_resolution),
-            aa_count_filter(seqs=seqs,
-                            max_single_aa_prop=max_single_aa_prop)])
+                              max_resolution=max_resolution)
+        ])
 
     @staticmethod
     def get_stochastic_train_filter_prob(
@@ -452,9 +432,6 @@ class OpenFoldDataset(torch.utils.data.Dataset):
         cluster_size = cache_entry.get("cluster_size", None)
         if cluster_size is not None and cluster_size > 0:
             probabilities.append(1 / cluster_size)
-
-        chain_length = len(cache_entry["seq"])
-        probabilities.append((1 / 512) * (max(min(chain_length, 512), 256)))
 
         # Risk of underflow here?
         out = 1
