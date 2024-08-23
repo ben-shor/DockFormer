@@ -121,7 +121,6 @@ def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_re
         protein_mask = processed_feature_dict["protein_mask"][0].astype(bool)
         ligand_mask = processed_feature_dict["ligand_mask"][0].astype(bool)
 
-
         save_output_structure(
             aatype=processed_feature_dict["aatype"][0][protein_mask],
             residue_index=processed_feature_dict["in_chain_residue_index"][0][protein_mask],
@@ -132,7 +131,7 @@ def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_re
             ligand_atype=processed_feature_dict["ligand_atype"][0][ligand_mask].astype(int),
             ligand_chiralities=processed_feature_dict["ligand_chirality"][0][ligand_mask].astype(int),
             ligand_charges= processed_feature_dict["ligand_charge"][0][ligand_mask].astype(int),
-            ligand_bonds=processed_feature_dict["ligand_bonds"][0][ligand_mask].astype(int),
+            ligand_bonds=processed_feature_dict["ligand_bonds"][0].astype(int),
             final_ligand_atom_positions=out["final_atom_positions"][0][ligand_mask][:, 1, :], # only ca index
             protein_output_path=protein_output_path,
             ligand_output_path=ligand_output_path,

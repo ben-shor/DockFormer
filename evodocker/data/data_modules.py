@@ -260,7 +260,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
                 "ligand_atype": self.fit_to_crop(ref_ligand_feats["ligand_atype"], crop_size, n_res),
                 "ligand_chirality": self.fit_to_crop(ref_ligand_feats["ligand_chirality"], crop_size, n_res),
                 "ligand_charge": self.fit_to_crop(ref_ligand_feats["ligand_charge"], crop_size, n_res),
-                "ligand_bonds": self.fit_to_crop(ref_ligand_feats["ligand_bonds"], crop_size, n_res),
+                "ligand_bonds": ref_ligand_feats["ligand_bonds"],
             })
 
         if self.mode == 'train' or self.mode == 'eval':
