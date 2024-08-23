@@ -961,8 +961,6 @@ def binding_site_loss(
     pos_class_weight: float,
     **kwargs,
 ) -> torch.Tensor:
-    binding_site_mask = binding_site_mask.unsqueeze(-1)
-
     logits = logits.squeeze(-1)
     bce_loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, binding_site_mask, reduction='none',
                                                                     pos_weight=logits.new_tensor([pos_class_weight]))
