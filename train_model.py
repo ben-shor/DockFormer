@@ -197,9 +197,11 @@ class ModelWrapper(pl.LightningModule):
         metrics["drmsd_intra_ligand"] = drmsd_intra_ligand_score
 
         # --- inter contacts
+        gt_contacts = batch["gt_inter_contacts"]
         pred_contacts = torch.sigmoid(outputs["inter_contact_logits"].clone().detach()).squeeze(-1)
         pred_contacts = (pred_contacts > 0.5).float()
-        gt_contacts = batch["gt_inter_contacts"]
+        pred_contacts = pred_contacts * batch["inter_pair_mask"]
+
 
         # Calculate True Positives, False Positives, and False Negatives
         tp = torch.sum((gt_contacts == 1) & (pred_contacts == 1))
