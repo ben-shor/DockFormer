@@ -722,13 +722,15 @@ def positions_intra_ligand_distogram_loss(
         keepdims=True,
     )
 
-    pred_dists = pred_dists.clamp(max=max_dist ** 2)
-    gt_dists = gt_dists.clamp(max=max_dist ** 2)
+    pred_dists = torch.sqrt(eps + pred_dists.clamp(max=max_dist ** 2)) / length_scale
+    gt_dists = torch.sqrt(eps + gt_dists.clamp(max=max_dist ** 2)) / length_scale
 
-    dists_diff = torch.abs(pred_dists - gt_dists) / (length_scale ** 2)
+    # Apply L2 loss
+    dists_diff = (pred_dists - gt_dists) ** 2
+
     dists_diff = dists_diff * intra_ligand_pair_mask.unsqueeze(-1)
 
-    dists_diff_sum_per_batch = torch.sum(torch.sqrt(eps + dists_diff), dim=(-1, -2, -3))
+    dists_diff_sum_per_batch = torch.sum(dists_diff, dim=(-1, -2, -3))
     mask_size_per_batch = torch.sum(intra_ligand_pair_mask, dim=(-1, -2))
     intra_ligand_loss = torch.mean(dists_diff_sum_per_batch / (eps + mask_size_per_batch))
 
