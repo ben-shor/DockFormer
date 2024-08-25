@@ -15,6 +15,7 @@
 
 import torch
 import torch.nn as nn
+from torch.nn import Parameter
 
 from evodocker.model.primitives import Linear, LayerNorm
 from evodocker.utils.loss import (
@@ -93,6 +94,8 @@ class Affinity2DPredictor(nn.Module):
         self.weight_linear = Linear(self.c_z, 1)
         self.fc2 = Linear(self.c_z, num_bins)
 
+        self.weight_multiplier = Parameter(torch.tensor(1.0))
+
     def forward(self, z, inter_contacts_logits, inter_pair_mask):
         # Extract interface part of Z
         x = self.fc1(z)  # [*, N, N, c_z]
@@ -106,6 +109,9 @@ class Affinity2DPredictor(nn.Module):
         flat_weights = simple_weights.reshape(batch_size, N*M, -1)  # [*, N*M, 1]
         flat_x = x.reshape(batch_size, N*M, -1)  # [*, N*M, c_z]
         flat_inter_pair_mask = inter_pair_mask.reshape(batch_size, N*M, 1)
+
+        # apply multiplier so that softmax will have good separation
+        flat_weights = flat_weights * self.weight_multiplier
 
         masked_values = flat_weights.masked_fill(~(flat_inter_pair_mask.bool()), float('-inf'))  # [*, N*N, 1]
         weights = torch.nn.functional.softmax(masked_values, dim=1)  # [*, N*N, 1]

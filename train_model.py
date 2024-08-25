@@ -218,6 +218,7 @@ class ModelWrapper(pl.LightningModule):
         # print("inter_contacts recall", recall, "precision", precision, tp, fp, fn, torch.ones_like(gt_contacts).sum())
 
         # --- Affinity
+        gt_affinity = batch["affinity"]
         affinity_linspace = torch.linspace(0, 15, 32, device=batch["affinity"].device)
         pred_affinity_1d = torch.sum(
             torch.softmax(outputs["affinity_1d_logits"].clone().detach(), -1) * affinity_linspace, dim=-1)
@@ -228,7 +229,6 @@ class ModelWrapper(pl.LightningModule):
         pred_affinity_cls = torch.sum(
             torch.softmax(outputs["affinity_cls_logits"].clone().detach(), -1) * affinity_linspace, dim=-1)
 
-        gt_affinity = batch["affinity"]
         metrics["affinity_dist_1d"] = torch.mean(torch.abs(gt_affinity - pred_affinity_1d))
         metrics["affinity_dist_2d"] = torch.mean(torch.abs(gt_affinity - pred_affinity_2d))
         metrics["affinity_dist_cls"] = torch.mean(torch.abs(gt_affinity - pred_affinity_cls))
