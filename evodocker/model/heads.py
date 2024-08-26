@@ -90,37 +90,27 @@ class Affinity2DPredictor(nn.Module):
 
         self.c_z = c_z
 
-        self.fc1 = Linear(self.c_z, self.c_z)
-        self.weight_linear = Linear(self.c_z, 1)
-        self.fc2 = Linear(self.c_z, num_bins)
-
-        self.weight_multiplier = Parameter(torch.tensor(1.0))
+        self.weight_linear = Linear(self.c_z + 1, 1)
+        self.embed_linear = Linear(self.c_z, self.c_z)
+        self.bins_linear = Linear(self.c_z, num_bins)
 
     def forward(self, z, inter_contacts_logits, inter_pair_mask):
-        # Extract interface part of Z
-        x = self.fc1(z)  # [*, N, N, c_z]
+        z_with_inter_contacts = torch.cat((z, inter_contacts_logits), dim=-1)  # [*, N, N, c_z + 1]
+        weights = self.weight_linear(z_with_inter_contacts)  # [*, N, N, 1]
 
+        x = self.embed_linear(z)  # [*, N, N, c_z]
         batch_size, N, M, _ = x.shape
 
-        inter_contacts_sigmoid = torch.sigmoid(inter_contacts_logits)  # [*, N, N, 1]
-        linear_weight_sigmoid = torch.sigmoid(self.weight_linear(x))  # [*, N, N, 1]
-        simple_weights = inter_contacts_sigmoid * linear_weight_sigmoid  # [*, N, N, 1]
-
-        flat_weights = simple_weights.reshape(batch_size, N*M, -1)  # [*, N*M, 1]
+        flat_weights = weights.reshape(batch_size, N*M, -1)  # [*, N*M, 1]
         flat_x = x.reshape(batch_size, N*M, -1)  # [*, N*M, c_z]
         flat_inter_pair_mask = inter_pair_mask.reshape(batch_size, N*M, 1)
 
-        # apply multiplier so that softmax will have good separation
-        flat_weights = flat_weights * self.weight_multiplier
+        flat_weights = flat_weights.masked_fill(~(flat_inter_pair_mask.bool()), float('-inf'))  # [*, N*N, 1]
+        flat_weights = torch.nn.functional.softmax(flat_weights, dim=1)  # [*, N*N, 1]
+        flat_weights = torch.nan_to_num(flat_weights, nan=0.0)  # [*, N*N, 1]
+        weighted_sum = torch.sum((flat_weights * flat_x).reshape(batch_size, N*M, -1), dim=1)  # [*, c_z]
 
-        masked_values = flat_weights.masked_fill(~(flat_inter_pair_mask.bool()), float('-inf'))  # [*, N*N, 1]
-        weights = torch.nn.functional.softmax(masked_values, dim=1)  # [*, N*N, 1]
-        weights = torch.nan_to_num(weights, nan=0.0)  # [*, N*N, 1]
-        weighted_sum = torch.sum((weights * flat_x).reshape(batch_size, N*M, -1), dim=1)  # [*, c_z]
-
-        affinity_logits = self.fc2(weighted_sum)
-
-        return affinity_logits
+        return self.bins_linear(weighted_sum)
 
 
 class Affinity1DPredictor(nn.Module):

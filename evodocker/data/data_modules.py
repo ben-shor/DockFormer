@@ -196,6 +196,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
 
         affinity_mask = torch.zeros((crop_size,), dtype=torch.float32)
         affinity_mask[n_res + n_lig] = 1
+        affinity_mask[n_res + n_lig - 1] = 1 # TODO: should we do this? it worked better in previous versions, but not sure why
 
         structural_mask = torch.zeros((crop_size,), dtype=torch.float32)
         structural_mask[:n_res + n_lig] = 1
