@@ -186,9 +186,13 @@ class StructureInputEmbedder(nn.Module):
         relpos = self.relpos(protein_residue_index.type(tf_emb_i.dtype))
         pair_emb += pair_protein_mask[..., None] * relpos
 
+        del relpos
+
         # apply ligand bonds
         ligand_bonds = self.ligand_linear_bond_z(ligand_bonds_feat)
         pair_emb += pair_ligand_mask[..., None] * ligand_bonds
+
+        del ligand_bonds
 
         # before recycles, do z_norm, this previously was a part of the recycles
         pair_emb = self.layer_norm_z(pair_emb)
@@ -196,13 +200,16 @@ class StructureInputEmbedder(nn.Module):
         # apply protein recycle
         prot_distogram_embed = self._get_binned_distogram(input_positions, self.prot_min_bin, self.prot_max_bin,
                                                           self.prot_no_bins, self.prot_recycling_linear)
-
         pair_emb = add(pair_emb, prot_distogram_embed * pair_protein_mask.unsqueeze(-1), inplace_safe)
+
+        del prot_distogram_embed
 
         # apply ligand recycle
         lig_distogram_embed = self._get_binned_distogram(input_positions, self.lig_min_bin, self.lig_max_bin,
                                                          self.lig_no_bins, self.lig_recycling_linear)
         pair_emb = add(pair_emb, lig_distogram_embed * pair_ligand_mask.unsqueeze(-1), inplace_safe)
+
+        del lig_distogram_embed
 
         return tf_m, pair_emb
 

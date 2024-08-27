@@ -1135,8 +1135,8 @@ class AlphaFoldLoss(nn.Module):
             losses[loss_name] = loss.detach().clone()
             loss_time_took[loss_name] = time.time() - start_time
         losses["unscaled_loss"] = cum_loss.detach().clone()
-        print("loss took: ", round(time.time() % 10000, 3),
-              sorted(loss_time_took.items(), key=lambda x: x[1], reverse=True))
+        # print("loss took: ", round(time.time() % 10000, 3),
+        #       sorted(loss_time_took.items(), key=lambda x: x[1], reverse=True))
 
         # Scale the loss by the square root of the minimum of the crop size and
         # the (average) sequence length. See subsection 1.9.

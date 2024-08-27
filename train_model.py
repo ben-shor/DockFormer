@@ -326,6 +326,7 @@ def train(override_config_path: str):
         low_prec=True
     )
     config = override_config(config, run_config.get("override_conf", {}))
+    accumulate_grad_batches = run_config.get("accumulate_grad_batches", 1)
 
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device_name = "cuda" if torch.cuda.is_available() else "cpu"
@@ -407,7 +408,7 @@ def train(override_config_path: str):
         default_root_dir=output_dir,
         **strategy_params,
         reload_dataloaders_every_n_epochs=1,
-        # accumulate_grad_batches=32, # can be used to simulate larger batch sizes
+        accumulate_grad_batches=accumulate_grad_batches,
         check_val_every_n_epoch=run_config.get("check_val_every_n_epoch", 10),
         callbacks=callbacks,
         logger=loggers,
