@@ -169,8 +169,14 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         input_protein_feats = self.data_pipeline.process_pdb(pdb_path=input_pdb_path)
 
         # load ref sdf
-        ref_sdf_path = os.path.join(parent_dir, input_data["ref_sdf"])
-        ref_ligand_feats = self.data_pipeline.process_sdf(sdf_path=ref_sdf_path)
+        if "ref_sdf" in input_data:
+            ref_sdf_path = os.path.join(parent_dir, input_data["ref_sdf"])
+            ref_ligand_feats = self.data_pipeline.process_sdf(sdf_path=ref_sdf_path)
+        elif "ref_sdf_list" in input_data:
+            sdf_path_list = [os.path.join(parent_dir, i) for i in input_data["ref_sdf_list"]]
+            ref_ligand_feats = self.data_pipeline.process_sdf_list(sdf_path_list=sdf_path_list)
+        else:
+            raise ValueError("ref_sdf or ref_sdf_list must be in input_data")
 
         n_res = input_protein_feats["protein_target_feat"].shape[0]
         n_lig = ref_ligand_feats["ligand_target_feat"].shape[0]
@@ -196,7 +202,6 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
 
         affinity_mask = torch.zeros((crop_size,), dtype=torch.float32)
         affinity_mask[n_res + n_lig] = 1
-        affinity_mask[n_res + n_lig - 1] = 1 # TODO: should we do this? it worked better in previous versions, but not sure why
 
         structural_mask = torch.zeros((crop_size,), dtype=torch.float32)
         structural_mask[:n_res + n_lig] = 1
@@ -268,10 +273,18 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
             gt_pdb_path = os.path.join(parent_dir, input_data["gt_structure"])
             gt_protein_feats = self.data_pipeline.process_pdb(pdb_path=gt_pdb_path)
 
-            gt_ligand_positions = self.data_pipeline.get_matching_positions(
-                os.path.join(parent_dir, input_data["ref_sdf"]),
-                os.path.join(parent_dir, input_data["gt_sdf"]),
-            )
+            if "gt_sdf" in input_data:
+                gt_ligand_positions = self.data_pipeline.get_matching_positions(
+                    os.path.join(parent_dir, input_data["ref_sdf"]),
+                    os.path.join(parent_dir, input_data["gt_sdf"]),
+                )
+            elif "gt_sdf_list" in input_data:
+                gt_ligand_positions = self.data_pipeline.get_matching_positions_list(
+                    [os.path.join(parent_dir, i) for i in input_data["ref_sdf_list"]],
+                    [os.path.join(parent_dir, i) for i in input_data["gt_sdf_list"]],
+                )
+            else:
+                raise ValueError("gt_sdf or gt_sdf_list must be in input_data")
 
             affinity = torch.tensor([input_data["affinity"]], dtype=torch.float32)
             resolution = torch.tensor(input_data["resolution"], dtype=torch.float32)

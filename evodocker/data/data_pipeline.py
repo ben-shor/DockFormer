@@ -162,6 +162,50 @@ class DataPipeline:
             "ligand_positions": positions.float()
         }
 
+    def process_sdf_list(self, sdf_path_list: List[str]) -> FeatureTensorDict:
+        all_sdf_feats = [self.process_sdf(sdf_path) for sdf_path in sdf_path_list]
+
+        all_sizes = [sdf_feats["ligand_target_feat"].shape[0] for sdf_feats in all_sdf_feats]
+
+        joined_ligand_feats = {}
+        for k in all_sdf_feats[0].keys():
+            if k == "ligand_positions":
+                joined_positions = all_sdf_feats[0][k]
+                prev_offset = joined_positions.max(dim=0).values + 100
+
+                for i, sdf_feats in enumerate(all_sdf_feats[1:]):
+                    offset = prev_offset - sdf_feats[k].min(dim=0).values
+                    joined_positions = torch.cat([joined_positions, sdf_feats[k] + offset], dim=0)
+                    prev_offset = joined_positions.max(dim=0).values + 100
+                joined_ligand_feats[k] = joined_positions
+            elif k in ["ligand_target_feat", "ligand_atype", "ligand_charge", "ligand_chirality", "ligand_bonds"]:
+                joined_ligand_feats[k] = torch.cat([sdf_feats[k] for sdf_feats in all_sdf_feats], dim=0)
+            elif k == "ligand_bonds_feat":
+                joined_feature = torch.zeros((sum(all_sizes), sum(all_sizes), all_sdf_feats[0][k].shape[2]))
+                for i, sdf_feats in enumerate(all_sdf_feats):
+                    start_idx = sum(all_sizes[:i])
+                    end_idx = sum(all_sizes[:i + 1])
+                    joined_feature[start_idx:end_idx, start_idx:end_idx, :] = sdf_feats[k]
+                joined_ligand_feats[k] = joined_feature
+            else:
+                raise ValueError(f"Unknown key in sdf list features {k}")
+        return joined_ligand_feats
+
+    def get_matching_positions_list(self, ref_path_list: List[str], gt_path_list: List[str]):
+        joined_gt_positions = []
+
+        for ref_ligand_path, gt_ligand_path in zip(ref_path_list, gt_path_list):
+            ref_ligand = Chem.MolFromMolFile(ref_ligand_path)
+            gt_ligand = Chem.MolFromMolFile(gt_ligand_path)
+
+            gt_original_positions = gt_ligand.GetConformer(0).GetPositions()
+
+            gt_positions = [gt_original_positions[idx] for idx in gt_ligand.GetSubstructMatch(ref_ligand)]
+
+            joined_gt_positions.extend(gt_positions)
+
+        return torch.tensor(np.array(joined_gt_positions)).float()
+
     def get_matching_positions(self, ref_ligand_path: str, gt_ligand_path: str):
         ref_ligand = Chem.MolFromMolFile(ref_ligand_path)
         gt_ligand = Chem.MolFromMolFile(gt_ligand_path)
