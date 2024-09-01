@@ -4,8 +4,11 @@ from rdkit.Chem.rdchem import ChiralType, BondType
 # {'C': 403253, 'O': 101283, 'N': 81325, 'S': 6262, 'F': 5256, 'P': 3378, 'Cl': 2920, 'Br': 552, 'B': 237, 'I': 185,
 #  'H': 181, 'Fe': 19, 'Se': 15, 'Ru': 10, 'Si': 5, 'Co': 4, 'Ir': 4, 'As': 2, 'Pt': 2, 'V': 1, 'Mg': 1, 'Be': 1,
 #  'Rh': 1, 'Cu': 1, 'Re': 1}
+# I have changed the uncommon types to common ions for the plinder dataset
+# {'As': "Zn", 'Pt': "Mn", 'V': "Ca", 'Mg': "Mg", 'Be': "Na", 'Rh': "Al", 'Cu': "K", 'Re': "Ni"}
+
 POSSIBLE_ATOM_TYPES = ['C', 'O', 'N', 'S', 'F', 'P', 'Cl', 'Br', 'B', 'I', 'H', 'Fe', 'Se', 'Ru', 'Si', 'Co', 'Ir',
-                       'As', 'Pt', 'V', 'Mg', 'Be', 'Rh', 'Cu', 'Re']
+                       'Zn', 'Mn', 'Ca', 'Mg', 'Na', 'Al', 'K', 'Ni']
 
 # bonds Counter({BondType.SINGLE: 366857, BondType.AROMATIC: 214238, BondType.DOUBLE: 59725, BondType.TRIPLE: 866,
 # BondType.UNSPECIFIED: 18, BondType.DATIVE: 8})

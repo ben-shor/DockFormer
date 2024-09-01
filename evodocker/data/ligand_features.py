@@ -12,7 +12,7 @@ def get_atom_features(atom: Chem.Atom):
     # TODO: this is temporary, we need to add more features, for example for Zn
     if atom.GetSymbol() not in POSSIBLE_ATOM_TYPES:
         print(f"********Unknown atom type {atom.GetSymbol()}")
-        atom_type = POSSIBLE_ATOM_TYPES.index("Re")
+        atom_type = POSSIBLE_ATOM_TYPES.index("Ni")
     else:
         atom_type = POSSIBLE_ATOM_TYPES.index(atom.GetSymbol())
     atom_charge = POSSIBLE_CHARGES.index(max(min(atom.GetFormalCharge(), 1), -1))

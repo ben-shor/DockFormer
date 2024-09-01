@@ -87,13 +87,13 @@ class ModelWrapper(pl.LightningModule):
         # ground_truth = batch.pop('gt_features', None)
 
         # Run the model
-        print("running model", round(time.time() % 10000, 3), flush=True)
+        # print("running model", round(time.time() % 10000, 3), flush=True)
         outputs = self(batch)
 
         # Remove the recycling dimension
         batch = tensor_tree_map(lambda t: t[..., -1], batch)
 
-        print("running loss", round(time.time() % 10000, 3), flush=True)
+        # print("running loss", round(time.time() % 10000, 3), flush=True)
         # Compute loss
         loss, loss_breakdown = self.loss(
             outputs, batch, _return_breakdown=True
@@ -101,7 +101,7 @@ class ModelWrapper(pl.LightningModule):
 
         # Log it
         self._log(loss_breakdown, batch, outputs)
-        print("loss done", round(time.time() % 10000, 3), flush=True)
+        # print("loss done", round(time.time() % 10000, 3), flush=True)
 
 
         return loss
