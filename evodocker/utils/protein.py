@@ -126,7 +126,12 @@ def from_pdb_string(pdb_str: str, chain_id: Optional[str] = None) -> Protein:
                     f"PDB contains an insertion code at chain {chain.id} and residue "
                     f"index {res.id[1]}. These are not supported."
                 )
+
             res_shortname = residue_constants.restype_3to1.get(res.resname, "X")
+            if res_shortname not in residue_constants.restypes:
+                print("Unknown residue type, skipping", res.resname)
+                continue
+
             restype_idx = residue_constants.restype_order.get(
                 res_shortname, residue_constants.restype_num
             )
