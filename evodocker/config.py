@@ -136,7 +136,7 @@ config = mlc.ConfigDict(
             "train": {
                 "fixed_size": True,
                 "crop": True,
-                "crop_size": 300,
+                "crop_size": 355,
                 "supervised": True,
                 "clamp_prob": 0.9,
                 "uniform_recycling": True,
@@ -147,6 +147,7 @@ config = mlc.ConfigDict(
                     # "batch_size": 2,
                     "num_workers": 16,
                     "pin_memory": True,
+                    "should_verify": False,
                 },
             },
         },

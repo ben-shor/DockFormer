@@ -52,11 +52,11 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         if mode not in valid_modes:
             raise ValueError(f'mode must be one of {valid_modes}')
 
-        self._all_input_files = [i for i in os.listdir(data_dir)
-                                 if i.endswith(".json") and self._verify_json_input_file(i)]
+        self._all_input_files = [i for i in os.listdir(data_dir) if i.endswith(".json")]
+        if self.config.data_module.data_loaders.should_verify:
+            self._all_input_files = [i for i in self._all_input_files if self._verify_json_input_file(i)]
 
         self.data_pipeline = data_pipeline.DataPipeline(config, mode)
-
 
     def _verify_json_input_file(self, file_name: str) -> bool:
         with open(os.path.join(self.data_dir, file_name), "r") as f:
@@ -76,9 +76,6 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
     def get_metadata_for_idx(self, idx: int) -> dict:
         input_path = os.path.join(self.data_dir, self._all_input_files[idx])
         input_data = json.load(open(input_path, "r"))
-        parent_dir = os.path.dirname(self.data_dir)
-        input_pdb_path = os.path.join(parent_dir, input_data["input_structure"])
-        input_structure = self.data_pipeline.process_pdb(pdb_path=input_pdb_path)
         metadata = {
             "resolution": input_data.get("resolution", 99.0),
             "input_path": input_path,
@@ -89,56 +86,6 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
     @staticmethod
     def _prepare_recycles(feat: torch.Tensor, num_recycles: int) -> torch.Tensor:
         return feat.unsqueeze(-1).repeat(*([1] * len(feat.shape)), num_recycles)
-
-    # def _add_affinity_to_ligand(self, ref_ligand_feats: FeatureTensorDict) -> FeatureTensorDict:
-    #     # TODO: delete
-    #     # add affinity, add additional token
-    #     affinity_target_feat = torch.zeros((1, ref_ligand_feats["ligand_target_feat"].shape[-1]), dtype=torch.float32)
-    #     affinity_target_feat[0, POSSIBLE_ATOM_TYPES.index("[AFFINITY]")] = 1
-    #     ligand_target_feat = torch.cat([ ref_ligand_feats["ligand_target_feat"], affinity_target_feat], dim=0)
-    #
-    #     n_lig = ref_ligand_feats["ligand_target_feat"].shape[0]
-    #     bonds_feat_size = ref_ligand_feats["ligand_bonds_feat"].shape[-1]
-    #     column_zeros = torch.zeros(n_lig, 1, bonds_feat_size)
-    #     row_zeros = torch.zeros(1, n_lig + 1, bonds_feat_size)
-    #     tensor_with_col = torch.cat([ref_ligand_feats["ligand_target_feat"], column_zeros], dim=1)
-    #     ligand_bonds_feat = torch.cat([tensor_with_col, row_zeros], dim=0)
-    #
-    #     center = ref_ligand_feats["ref_ligand_positions"].mean(dim=0)
-    #     ref_ligand_positions = torch.cat([ref_ligand_feats["ref_ligand_positions"], center.unsqueeze(0)], dim=0)
-    #
-    #     return {
-    #         "ligand_target_feat": ligand_target_feat,
-    #         "ligand_bonds_feat": ligand_bonds_feat,
-    #         "ref_ligand_positions": ref_ligand_positions,
-    #     }
-    #
-    # def _pad_feats(self, feats):
-    #     # TODO: delte
-    #     if (self.mode == "train" or self.mode == "eval") and self.config.train.fixed_size:
-    #         shape_schema = self.config.common.feat
-    #         filtered_feats = {}
-    #         for k, v in feats.items():
-    #             if k not in shape_schema:
-    #                 continue
-    #             pad_size_map = {NUM_RES: self.config.train.crop_size}
-    #             shape = list(v.shape)
-    #             schema = shape_schema[k]
-    #             msg = "Rank mismatch between shape and shape schema for"
-    #             assert len(shape) == len(schema), f"{msg} {k}: {shape} vs {schema}"
-    #
-    #             pad_size = [
-    #                 pad_size_map.get(s2, None) or s1 for (s1, s2) in zip(shape, schema)
-    #             ]
-    #
-    #             padding = [(0, p - v.shape[i]) for i, p in enumerate(pad_size)]
-    #             padding.reverse()
-    #             padding = list(itertools.chain(*padding))
-    #             if padding:
-    #                 filtered_feats[k] = torch.nn.functional.pad(v, padding)
-    #                 filtered_feats[k] = torch.reshape(filtered_feats[k], pad_size)
-    #         feats = filtered_feats
-    #     return feats
 
     def fit_to_crop(self, target_tensor: torch.Tensor, crop_size: int, start_ind: int) -> torch.Tensor:
         if len(target_tensor.shape) == 1:
