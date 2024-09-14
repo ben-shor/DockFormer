@@ -86,6 +86,7 @@ def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_re
     dataset = OpenFoldSingleDataset(data_dir=input_dir, config=config.data, mode="predict")
     for i, processed_feature_dict in enumerate(dataset):
         tag = dataset.get_metadata_for_idx(i)["input_name"]
+        print("Processing", tag)
         output_name = f"{tag}_predicted"
         protein_output_path = os.path.join(output_directory, f'{output_name}_protein.pdb')
         if os.path.exists(protein_output_path) and skip_exists:
@@ -105,39 +106,47 @@ def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_re
         )
         out = tensor_tree_map(lambda x: np.array(x.cpu()), out)
 
-        affinity = torch.sum(torch.softmax(torch.tensor(out["affinity_2d_logits"]), -1) * torch.linspace(0, 15, 32),
-                             dim=-1).item()
-        print("Affinity: ", affinity)
+        affinity_output_path = os.path.join(output_directory, f'{output_name}_affinity.json')
+        # affinity = torch.sum(torch.softmax(torch.tensor(out["affinity_2d_logits"]), -1) * torch.linspace(0, 15, 32),
+        #                      dim=-1).item()
+        affinity_2d = torch.sum(torch.softmax(torch.tensor(out["affinity_2d_logits"]), -1) * torch.linspace(0, 15, 32),
+                                dim=-1).item()
+        affinity_1d = torch.sum(torch.softmax(torch.tensor(out["affinity_1d_logits"]), -1) * torch.linspace(0, 15, 32),
+                                dim=-1).item()
+        affinity_cls = torch.sum(torch.softmax(torch.tensor(out["affinity_cls_logits"]), -1) * torch.linspace(0, 15, 32),
+                                dim=-1).item()
+
+        print("Affinity: ", affinity_2d, affinity_cls, affinity_1d)
+        with open(affinity_output_path, "w") as f:
+            json.dump({"affinity_2d": affinity_2d, "affinity_1d": affinity_1d, "affinity_cls": affinity_cls}, f)
 
         # binding_site = torch.sigmoid(torch.tensor(out["binding_site_logits"])) * 100
         # binding_site = binding_site[:processed_feature_dict["aatype"].shape[1]].flatten()
 
-        predicted_contacts = torch.sigmoid(torch.tensor(out["inter_contact_logits"])) * 100
-        binding_site = torch.max(predicted_contacts, dim=2).values.flatten()
+        # predicted_contacts = torch.sigmoid(torch.tensor(out["inter_contact_logits"])) * 100
+        # binding_site = torch.max(predicted_contacts, dim=2).values.flatten()
 
-        protein_binding_output_path = os.path.join(output_directory, f'{output_name}_protein_affinity.pdb')
-        ligand_output_path = os.path.join(output_directory, f'{output_name}_ligand.sdf')
+        ligand_output_path = os.path.join(output_directory, f"{output_name}_ligand_{{i}}.sdf")
 
         protein_mask = processed_feature_dict["protein_mask"][0].astype(bool)
         ligand_mask = processed_feature_dict["ligand_mask"][0].astype(bool)
 
         save_output_structure(
             aatype=processed_feature_dict["aatype"][0][protein_mask],
-            residue_index=processed_feature_dict["in_chain_residue_index"][0][protein_mask],
-            chain_index=processed_feature_dict["chain_index"][0][protein_mask],
+            residue_index=processed_feature_dict["in_chain_residue_index"][0],
+            chain_index=processed_feature_dict["chain_index"][0],
             plddt=out["plddt"][0][protein_mask],
             final_atom_protein_positions=out["final_atom_positions"][0][protein_mask],
             final_atom_mask=out["final_atom_mask"][0][protein_mask],
-            ligand_atype=processed_feature_dict["ligand_atype"][0][ligand_mask].astype(int),
-            ligand_chiralities=processed_feature_dict["ligand_chirality"][0][ligand_mask].astype(int),
-            ligand_charges= processed_feature_dict["ligand_charge"][0][ligand_mask].astype(int),
+            ligand_atype=processed_feature_dict["ligand_atype"][0].astype(int),
+            ligand_chiralities=processed_feature_dict["ligand_chirality"][0].astype(int),
+            ligand_charges= processed_feature_dict["ligand_charge"][0].astype(int),
             ligand_bonds=processed_feature_dict["ligand_bonds"][0].astype(int),
+            ligand_idx=processed_feature_dict["ligand_idx"][0].astype(int),
+            ligand_bonds_idx=processed_feature_dict["ligand_bonds_idx"][0].astype(int),
             final_ligand_atom_positions=out["final_atom_positions"][0][ligand_mask][:, 1, :], # only ca index
             protein_output_path=protein_output_path,
             ligand_output_path=ligand_output_path,
-            protein_affinity_output_path=protein_binding_output_path,
-            affinity=affinity,
-            binding_site_probs=binding_site
         )
 
         logger.info(f"Output written to {protein_output_path}...")

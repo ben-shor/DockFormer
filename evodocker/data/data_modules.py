@@ -79,7 +79,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         metadata = {
             "resolution": input_data.get("resolution", 99.0),
             "input_path": input_path,
-            "input_name": os.path.basename(input_path).split(".")[0],
+            "input_name": os.path.basename(input_path).split(".json")[0],
         }
         return metadata
 
@@ -119,6 +119,8 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         if "ref_sdf" in input_data:
             ref_sdf_path = os.path.join(parent_dir, input_data["ref_sdf"])
             ref_ligand_feats = self.data_pipeline.process_sdf(sdf_path=ref_sdf_path)
+            ref_ligand_feats["ligand_idx"] = torch.zeros((ref_ligand_feats["ligand_target_feat"].shape[0],))
+            ref_ligand_feats["ligand_bonds_idx"] = torch.zeros((ref_ligand_feats["ligand_bonds_feat"].shape[0],))
         elif "ref_sdf_list" in input_data:
             sdf_path_list = [os.path.join(parent_dir, i) for i in input_data["ref_sdf_list"]]
             ref_ligand_feats = self.data_pipeline.process_sdf_list(sdf_path_list=sdf_path_list)
@@ -208,12 +210,14 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
 
         if self.mode == "predict":
             feats.update({
-                "in_chain_residue_index": self.fit_to_crop(input_protein_feats["in_chain_residue_index"], crop_size, 0),
-                "chain_index": self.fit_to_crop(input_protein_feats["chain_index"], crop_size, 0),
-                "ligand_atype": self.fit_to_crop(ref_ligand_feats["ligand_atype"], crop_size, n_res),
-                "ligand_chirality": self.fit_to_crop(ref_ligand_feats["ligand_chirality"], crop_size, n_res),
-                "ligand_charge": self.fit_to_crop(ref_ligand_feats["ligand_charge"], crop_size, n_res),
+                "in_chain_residue_index": input_protein_feats["in_chain_residue_index"],
+                "chain_index": input_protein_feats["chain_index"],
+                "ligand_atype": ref_ligand_feats["ligand_atype"],
+                "ligand_chirality": ref_ligand_feats["ligand_chirality"],
+                "ligand_charge": ref_ligand_feats["ligand_charge"],
                 "ligand_bonds": ref_ligand_feats["ligand_bonds"],
+                "ligand_idx": ref_ligand_feats["ligand_idx"],
+                "ligand_bonds_idx": ref_ligand_feats["ligand_bonds_idx"],
             })
 
         if self.mode == 'train' or self.mode == 'eval':

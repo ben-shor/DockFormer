@@ -180,6 +180,13 @@ class DataPipeline:
                 joined_ligand_feats[k] = joined_positions
             elif k in ["ligand_target_feat", "ligand_atype", "ligand_charge", "ligand_chirality", "ligand_bonds"]:
                 joined_ligand_feats[k] = torch.cat([sdf_feats[k] for sdf_feats in all_sdf_feats], dim=0)
+                if k == "ligand_target_feat":
+                    joined_ligand_feats["ligand_idx"] = torch.cat([torch.full((sdf_feats[k].shape[0],), i)
+                                                                   for i, sdf_feats in enumerate(all_sdf_feats)], dim=0)
+                elif k == "ligand_bonds":
+                    joined_ligand_feats["ligand_bonds_idx"] = torch.cat([torch.full((sdf_feats[k].shape[0],), i)
+                                                                        for i, sdf_feats in enumerate(all_sdf_feats)],
+                                                                        dim=0)
             elif k == "ligand_bonds_feat":
                 joined_feature = torch.zeros((sum(all_sizes), sum(all_sizes), all_sdf_feats[0][k].shape[2]))
                 for i, sdf_feats in enumerate(all_sdf_feats):

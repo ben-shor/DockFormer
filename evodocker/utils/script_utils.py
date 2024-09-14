@@ -157,9 +157,8 @@ def get_molecule_from_output(atoms_atype: List[int], atom_chiralities: List[int]
 
 
 def save_output_structure(aatype, residue_index, chain_index, plddt, final_atom_protein_positions, final_atom_mask,
-                          ligand_atype, ligand_chiralities, ligand_charges, ligand_bonds, final_ligand_atom_positions,
-                          protein_output_path, ligand_output_path, protein_affinity_output_path, affinity,
-                          binding_site_probs):
+                          ligand_atype, ligand_chiralities, ligand_charges, ligand_bonds, ligand_idx, ligand_bonds_idx,
+                          final_ligand_atom_positions, protein_output_path, ligand_output_path):
     plddt_b_factors = numpy.repeat(
         plddt[..., None], residue_constants.atom_type_num, axis=-1
     )
@@ -177,30 +176,37 @@ def save_output_structure(aatype, residue_index, chain_index, plddt, final_atom_
     with open(protein_output_path, 'w') as fp:
         fp.write(protein.to_pdb(unrelaxed_protein))
 
-    binding_site_b_factors = numpy.repeat(
-        binding_site_probs[..., None], residue_constants.atom_type_num, axis=-1
-    )
+    # binding_site_b_factors = numpy.repeat(
+    #     binding_site_probs[..., None], residue_constants.atom_type_num, axis=-1
+    # )
+    #
+    # protein_binding_site = protein.from_prediction(
+    #     aatype=aatype,
+    #     residue_index=residue_index,
+    #     chain_index=chain_index,
+    #     atom_mask=final_atom_mask,
+    #     atom_positions=final_atom_protein_positions,
+    #     b_factors=binding_site_b_factors,
+    #     remove_leading_feature_dimension=False,
+    #     remark=f"affinity: {affinity:.3f}",
+    # )
+    #
+    # with open(protein_affinity_output_path, 'w') as fp:
+    #     fp.write(protein.to_pdb(protein_binding_site))
 
-    protein_binding_site = protein.from_prediction(
-        aatype=aatype,
-        residue_index=residue_index,
-        chain_index=chain_index,
-        atom_mask=final_atom_mask,
-        atom_positions=final_atom_protein_positions,
-        b_factors=binding_site_b_factors,
-        remove_leading_feature_dimension=False,
-        remark=f"affinity: {affinity:.3f}",
-    )
+    all_ligand_idxs = numpy.unique(ligand_idx)
+    for cur_ligand_idx in all_ligand_idxs:
+        atom_mask = ligand_idx == cur_ligand_idx
+        cur_ligand_atype = ligand_atype[atom_mask]
+        cur_ligand_chiralities = ligand_chiralities[atom_mask]
+        cur_ligand_charges = ligand_charges[atom_mask]
 
-    with open(protein_affinity_output_path, 'w') as fp:
-        fp.write(protein.to_pdb(protein_binding_site))
+        cur_ligand_bonds = ligand_bonds[ligand_bonds_idx == cur_ligand_idx]
 
-    ligand = get_molecule_from_output(ligand_atype, ligand_chiralities, ligand_charges, ligand_bonds,
-                                      final_ligand_atom_positions)
-    # protein_obj = Chem.MolFromPDBFile(output_path, sanitize=False)
-    # assert protein_obj is not None, "Failed to unrelaxed read protein from PDB file"
-    # combined = Chem.CombineMols(protein_obj, ligand)
+        cur_ligand_atom_positions = final_ligand_atom_positions[atom_mask]
 
-    with open(ligand_output_path, 'w') as f:
-        f.write(Chem.MolToMolBlock(ligand, kekulize=False))
+        ligand = get_molecule_from_output(cur_ligand_atype, cur_ligand_chiralities, cur_ligand_charges, cur_ligand_bonds,
+                                          cur_ligand_atom_positions)
+        with open(ligand_output_path.format(i=cur_ligand_idx), 'w') as f:
+            f.write(Chem.MolToMolBlock(ligand, kekulize=False))
     print("Output written to", protein_output_path, ligand_output_path)
