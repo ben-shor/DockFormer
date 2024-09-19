@@ -331,7 +331,6 @@ def main(config_path):
                                  reembed_smiles=smiles, save_aligned=save_aligned)
         except Exception as e:
             print(f"Failed to compute RMSD for {jobname}", e)
-            raise
             # raise e
             continue
 
