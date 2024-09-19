@@ -261,7 +261,7 @@ def relax_folder(folder_path: str):
     for filename in filenames:
         if filename.endswith("_predicted_protein.pdb"):
             jobname = filename.split("_predicted_protein.pdb")[0]
-            ligand_path = os.path.join(folder_path, jobname + "_predicted_ligand.sdf")
+            ligand_path = os.path.join(folder_path, jobname + "_predicted_ligand_0.sdf")
             if not os.path.exists(ligand_path):
                 continue
             all_jobnames.append(jobname)
@@ -269,7 +269,7 @@ def relax_folder(folder_path: str):
     success = 0
     for jobname in all_jobnames:
         protein_pdb_path = os.path.join(folder_path, jobname + "_predicted_protein.pdb")
-        ligand_sdf_path = os.path.join(folder_path, jobname + "_predicted_ligand.sdf")
+        ligand_sdf_path = os.path.join(folder_path, jobname + "_predicted_ligand_0.sdf")
         relaxed_protein_path = os.path.join(folder_path, jobname + "_protein_relaxed.pdb")
         relaxed_ligand_path = os.path.join(folder_path, jobname + "_ligand_relaxed.sdf")
         if os.path.exists(relaxed_protein_path) and os.path.exists(relaxed_ligand_path):

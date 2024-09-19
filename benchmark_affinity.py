@@ -36,7 +36,7 @@ def main(config_path):
         # gt_ligand_path = os.path.join(POSEBUSTERS_GT, jobname, f"{jobname}_ligand.sdf")
         pred_protein_path = os.path.join(output_dir, "predictions", f"{jobname}_predicted_protein.pdb")
         pred_affinity_path = os.path.join(output_dir, "predictions", f"{jobname}_predicted_affinity.json")
-        pred_ligand_path = os.path.join(output_dir, "predictions", f"{jobname}_predicted_ligand.sdf")
+        # pred_ligand_path = os.path.join(output_dir, "predictions", f"{jobname}_predicted_ligand_0.sdf")
         input_json = os.path.join(AFFINITY_TEST_JSONS, f"{jobname}.json")
         gt_affinity = json.load(open(input_json, "r"))["affinity"]
 
