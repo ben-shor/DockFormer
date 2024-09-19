@@ -120,7 +120,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
             ref_sdf_path = os.path.join(parent_dir, input_data["ref_sdf"])
             ref_ligand_feats = self.data_pipeline.process_sdf(sdf_path=ref_sdf_path)
             ref_ligand_feats["ligand_idx"] = torch.zeros((ref_ligand_feats["ligand_target_feat"].shape[0],))
-            ref_ligand_feats["ligand_bonds_idx"] = torch.zeros((ref_ligand_feats["ligand_bonds_feat"].shape[0],))
+            ref_ligand_feats["ligand_bonds_idx"] = torch.zeros((ref_ligand_feats["ligand_bonds"].shape[0],))
         elif "ref_sdf_list" in input_data:
             sdf_path_list = [os.path.join(parent_dir, i) for i in input_data["ref_sdf_list"]]
             ref_ligand_feats = self.data_pipeline.process_sdf_list(sdf_path_list=sdf_path_list)

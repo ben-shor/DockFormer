@@ -43,9 +43,17 @@ def main(config_path):
         pred_affinity_data = json.load(open(pred_affinity_path, "r"))
         affinity_2d, affinity_cls, affinity_1d = pred_affinity_data["affinity_2d"], \
                                                  pred_affinity_data["affinity_cls"], pred_affinity_data["affinity_1d"]
+        affinity_2d_max, affinity_cls_max, affinity_1d_max = pred_affinity_data["affinity_2d_max"], \
+                                                             pred_affinity_data["affinity_cls_max"], \
+                                                             pred_affinity_data["affinity_1d_max"]
+
 
         all_affinity_data[jobname] = {"gt_affinity": gt_affinity, "pred_affinity_2d": affinity_2d,
-                                      "pred_affinity_cls": affinity_cls, "pred_affinity_1d": affinity_1d}
+                                      "pred_affinity_cls": affinity_cls, "pred_affinity_1d": affinity_1d,
+                                      "pred_affinity_2d_max": affinity_2d_max, "pred_affinity_cls_max": affinity_cls_max,
+                                      "pred_affinity_1d_max": affinity_1d_max}
+
+    open(os.path.join(output_dir, "all_affinity_data.json"), "w").write(json.dumps(all_affinity_data, indent=4))
 
     # 2d affinity dists and rmse
     gt_affinities = np.array([data["gt_affinity"] for data in all_affinity_data.values()])
