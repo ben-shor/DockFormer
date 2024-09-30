@@ -641,6 +641,7 @@ def inter_contact_loss(
 def affinity_loss(
     logits,
     affinity,
+    affinity_loss_factor,
     min_bin=0,
     max_bin=15,
     no_bins=32,
@@ -658,7 +659,12 @@ def affinity_loss(
         logits,
         torch.nn.functional.one_hot(true_bins, no_bins),
     )
-    return torch.mean(errors)
+
+    # print("errors dim", errors.shape, affinity_loss_factor.shape, errors)
+    after_factor = errors * affinity_loss_factor.squeeze()
+    mean_val = after_factor.sum() / affinity_loss_factor.sum()
+    # print("after factor", after_factor.shape, after_factor, affinity_loss_factor.sum(), mean_val)
+    return mean_val
 
 
 def positions_inter_distogram_loss(

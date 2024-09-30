@@ -237,7 +237,13 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
             else:
                 raise ValueError("gt_sdf or gt_sdf_list must be in input_data")
 
-            affinity = torch.tensor([input_data["affinity"]], dtype=torch.float32)
+            affinity_loss_factor = torch.tensor([1.0], dtype=torch.float32)
+            if input_data["affinity"] is None:
+                affinity_loss_factor = torch.tensor([0.0], dtype=torch.float32)
+                affinity = torch.tensor([0.0], dtype=torch.float32)
+            else:
+                affinity = torch.tensor([input_data["affinity"]], dtype=torch.float32)
+
             resolution = torch.tensor(input_data["resolution"], dtype=torch.float32)
 
             # prepare inter_contacts
@@ -315,6 +321,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
                 "gt_ligand_positions": self.fit_to_crop(gt_ligand_positions, crop_size, n_res),
                 "resolution": resolution,
                 "affinity": affinity,
+                "affinity_loss_factor": affinity_loss_factor,
                 "seq_length": torch.tensor(n_res + n_lig),
                 "binding_site_mask": self.fit_to_crop(binding_site_mask, crop_size, 0),
                 "gt_inter_contacts": inter_contact_reshaped_to_crop,
