@@ -57,6 +57,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
             self._all_input_files = [i for i in self._all_input_files if self._verify_json_input_file(i)]
 
         self.data_pipeline = data_pipeline.DataPipeline(config, mode)
+        self.protein_distogram_mask_prob = self.config.train.protein_distogram_mask_prob
 
     def _verify_json_input_file(self, file_name: str) -> bool:
         with open(os.path.join(self.data_dir, file_name), "r") as f:
@@ -179,6 +180,12 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
         input_positions[:n_res] = input_protein_feats["pseudo_beta"]
         input_positions[n_res:n_res + n_lig] = ref_ligand_feats["ligand_positions"]
 
+        protein_distogram_mask = torch.zeros(crop_size)
+        ones_indices = torch.randperm(n_res)[:int(n_res * self.protein_distogram_mask_prob)]
+        # print(ones_indices)
+        protein_distogram_mask[ones_indices] = 1
+        input_positions = input_positions * (1 - protein_distogram_mask).unsqueeze(-1)
+
         # Implement ligand as amino acid type 20
         ligand_aatype = 20 * torch.ones((n_lig, ), dtype=input_protein_feats["aatype"].dtype)
         aatype = torch.cat([input_protein_feats["aatype"], ligand_aatype], dim=0)
@@ -202,6 +209,7 @@ class OpenFoldSingleDataset(torch.utils.data.Dataset):
             "target_feat": target_feat,
             "ligand_bonds_feat": ligand_bonds_feat,
             "input_positions": input_positions,
+            "protein_distogram_mask": protein_distogram_mask,
             "protein_residue_index": self.fit_to_crop(input_protein_feats["residue_index"], crop_size, 0),
             "aatype": self.fit_to_crop(aatype, crop_size, 0),
             "residx_atom37_to_atom14": self.fit_to_crop(residx_atom37_to_atom14, crop_size, 0),

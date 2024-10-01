@@ -140,6 +140,7 @@ config = mlc.ConfigDict(
                 "supervised": True,
                 "clamp_prob": 0.9,
                 "uniform_recycling": True,
+                "protein_distogram_mask_prob": 0.1,
             },
             "data_module": {
                 "data_loaders": {

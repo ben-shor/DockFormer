@@ -87,7 +87,7 @@ class StructureInputEmbedder(nn.Module):
         self.lig_no_bins = lig_no_bins
         self.inf = inf
 
-        self.prot_recycling_linear = Linear(self.prot_no_bins, self.c_z)
+        self.prot_recycling_linear = Linear(self.prot_no_bins + 1, self.c_z)
         self.lig_recycling_linear = Linear(self.lig_no_bins, self.c_z)
         self.layer_norm_m = LayerNorm(self.c_m)
         self.layer_norm_z = LayerNorm(self.c_z)
@@ -114,7 +114,7 @@ class StructureInputEmbedder(nn.Module):
         d = d.to(ri.dtype)
         return self.linear_relpos(d)
 
-    def _get_binned_distogram(self, x, min_bin, max_bin, no_bins, recycling_linear):
+    def _get_binned_distogram(self, x, min_bin, max_bin, no_bins, recycling_linear, prot_distogram_mask=None):
         # This squared method might become problematic in FP16 mode.
         bins = torch.linspace(
             min_bin,
@@ -132,6 +132,31 @@ class StructureInputEmbedder(nn.Module):
 
         # [*, N, N, no_bins]
         d = ((d > squared_bins) * (d < upper)).type(x.dtype)
+        # print("d shape", d.shape, d[0][0][:10])
+
+        if prot_distogram_mask is not None:
+            expanded_d = torch.cat([d, torch.zeros(*d.shape[:-1], 1)], dim=-1)
+
+            # Step 2: Create a mask where `input_positions_masked` is 0
+            # Use broadcasting and tensor operations directly without additional variables
+            input_positions_mask = (prot_distogram_mask == 1).float()  # Shape [N, crop_size]
+            mask_i = input_positions_mask.unsqueeze(2)  # Shape [N, crop_size, 1]
+            mask_j = input_positions_mask.unsqueeze(1)  # Shape [N, 1, crop_size]
+
+            # Step 3: Combine masks for both [N, :, i, :] and [N, i, :, :]
+            combined_mask = mask_i + mask_j  # Shape [N, crop_size, crop_size]
+            combined_mask = combined_mask.clamp(max=1)  # Ensure binary mask
+
+            # Step 4: Apply the mask
+            # a. Set all but the last position in the `no_bins + 1` dimension to 0 where the mask is 1
+            expanded_d[..., :-1] *= (1 - combined_mask).unsqueeze(-1)  # Shape [N, crop_size, crop_size, no_bins]
+
+            # print("expanded_d shape1", expanded_d.shape, expanded_d[0][0][:10])
+
+            # b. Set the last position in the `no_bins + 1` dimension to 1 where the mask is 1
+            expanded_d[..., -1] += combined_mask  # Shape [N, crop_size, crop_size, 1]
+            d = expanded_d
+            # print("expanded_d shape2", d.shape, d[0][0][:10])
 
         return recycling_linear(d)
 
@@ -144,6 +169,7 @@ class StructureInputEmbedder(nn.Module):
         ligand_bonds_feat: torch.Tensor,
         input_positions: torch.Tensor,
         protein_residue_index: torch.Tensor,
+        protein_distogram_mask: torch.Tensor,
         inplace_safe: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -199,7 +225,10 @@ class StructureInputEmbedder(nn.Module):
 
         # apply protein recycle
         prot_distogram_embed = self._get_binned_distogram(input_positions, self.prot_min_bin, self.prot_max_bin,
-                                                          self.prot_no_bins, self.prot_recycling_linear)
+                                                          self.prot_no_bins, self.prot_recycling_linear,
+                                                          protein_distogram_mask)
+
+
         pair_emb = add(pair_emb, prot_distogram_embed * pair_protein_mask.unsqueeze(-1), inplace_safe)
 
         del prot_distogram_embed
