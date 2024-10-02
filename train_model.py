@@ -385,7 +385,8 @@ def train(override_config_path: str):
 
     mc = ModelCheckpoint(
         dirpath=checkpoint_dir,
-        every_n_epochs=1,
+        # every_n_epochs=1,
+        every_n_train_steps=1000,
         auto_insert_metric_name=False,
         save_top_k=1,
         save_on_train_epoch_end=True,  # before validation
