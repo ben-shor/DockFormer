@@ -15,7 +15,7 @@ from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.profilers import AdvancedProfiler
 
 from evodocker.config import model_config
-from evodocker.data.data_modules import OpenFoldDataModule
+from evodocker.data.data_modules import OpenFoldDataModule, DockFormerDataModule
 from evodocker.model.model import AlphaFold
 from evodocker.utils import residue_constants
 from evodocker.utils.exponential_moving_average import ExponentialMovingAverage
@@ -218,22 +218,30 @@ class ModelWrapper(pl.LightningModule):
         # print("inter_contacts recall", recall, "precision", precision, tp, fp, fn, torch.ones_like(gt_contacts).sum())
 
         # --- Affinity
-        gt_affinity = batch["affinity"].squeeze(-1)
-        affinity_linspace = torch.linspace(0, 15, 32, device=batch["affinity"].device)
-        pred_affinity_1d = torch.sum(
-            torch.softmax(outputs["affinity_1d_logits"].clone().detach(), -1) * affinity_linspace, dim=-1)
+        if batch["affinity_loss_factor"].sum() > 0:
+            # print("affinity loss factor", batch["affinity_loss_factor"].sum())
+            gt_affinity = batch["affinity"].squeeze(-1)
+            affinity_linspace = torch.linspace(0, 15, 32, device=batch["affinity"].device)
+            pred_affinity_1d = torch.sum(
+                torch.softmax(outputs["affinity_1d_logits"].clone().detach(), -1) * affinity_linspace, dim=-1)
 
-        pred_affinity_2d = torch.sum(
-            torch.softmax(outputs["affinity_2d_logits"].clone().detach(), -1) * affinity_linspace, dim=-1)
+            pred_affinity_2d = torch.sum(
+                torch.softmax(outputs["affinity_2d_logits"].clone().detach(), -1) * affinity_linspace, dim=-1)
 
-        pred_affinity_cls = torch.sum(
-            torch.softmax(outputs["affinity_cls_logits"].clone().detach(), -1) * affinity_linspace, dim=-1)
+            pred_affinity_cls = torch.sum(
+                torch.softmax(outputs["affinity_cls_logits"].clone().detach(), -1) * affinity_linspace, dim=-1)
 
-        metrics["affinity_dist_1d"] = torch.mean(torch.abs(gt_affinity - pred_affinity_1d))
-        metrics["affinity_dist_2d"] = torch.mean(torch.abs(gt_affinity - pred_affinity_2d))
-        metrics["affinity_dist_cls"] = torch.mean(torch.abs(gt_affinity - pred_affinity_cls))
-        metrics["affinity_dist_avg"] = torch.mean(torch.abs(gt_affinity
-                                        - (pred_affinity_cls + pred_affinity_1d + pred_affinity_2d) / 3))
+            aff_loss_factor = batch["affinity_loss_factor"].squeeze()
+
+            metrics["affinity_dist_1d"] = (torch.abs(gt_affinity - pred_affinity_1d) * aff_loss_factor).sum() / aff_loss_factor.sum()
+            metrics["affinity_dist_2d"] = (torch.abs(gt_affinity - pred_affinity_2d) * aff_loss_factor).sum() / aff_loss_factor.sum()
+            metrics["affinity_dist_cls"] = (torch.abs(gt_affinity - pred_affinity_cls) * aff_loss_factor).sum() / aff_loss_factor.sum()
+            metrics["affinity_dist_avg"] = (torch.abs(gt_affinity - (pred_affinity_cls + pred_affinity_1d + pred_affinity_2d) / 3) * aff_loss_factor).sum() / aff_loss_factor.sum()
+            # print("affinity metrics", gt_affinity, pred_affinity_2d, aff_loss_factor, metrics["affinity_dist_1d"],
+            #       metrics["affinity_dist_2d"], metrics["affinity_dist_cls"], metrics["affinity_dist_avg"])
+        else:
+            # print("skipping affinity metrics")
+            pass
         if superimposition_metrics:
             superimposed_pred, alignment_rmsd, rots, transs = superimpose(
                 protein_gt_coords_masked_ca, protein_pred_coords_masked_ca, protein_atom_mask_ca,
@@ -282,6 +290,8 @@ class ModelWrapper(pl.LightningModule):
             optimizer,
             last_epoch=self.last_lr_step,
             max_lr=self.config.globals.max_lr,
+            start_decay_after_n_steps=10000,
+            decay_every_n_steps=10000,
         )
 
         return {
@@ -330,7 +340,7 @@ def train(override_config_path: str):
 
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device_name = "cuda" if torch.cuda.is_available() else "cpu"
-    device_name = "mps" if device_name == "cpu" and torch.backends.mps.is_available() else device_name
+    # device_name = "mps" if device_name == "cpu" and torch.backends.mps.is_available() else device_name
     model_module = ModelWrapper(config)
 
     # device_name = "cpu"
@@ -338,13 +348,21 @@ def train(override_config_path: str):
     # for debugging memory:
     # torch.cuda.memory._record_memory_history()
 
-    data_module = OpenFoldDataModule(
-        config=config.data,
-        batch_seed=seed,
-        train_data_dir=run_config["train_input_dir"],
-        val_data_dir=run_config["val_input_dir"],
-        train_epoch_len=run_config.get("train_epoch_len", 1000),
-    )
+    if "train_input_dir" in run_config:
+        data_module = OpenFoldDataModule(
+            config=config.data,
+            batch_seed=seed,
+            train_data_dir=run_config["train_input_dir"],
+            val_data_dir=run_config["val_input_dir"],
+            train_epoch_len=run_config.get("train_epoch_len", 1000),
+        )
+    else:
+        data_module = DockFormerDataModule(
+            config=config.data,
+            batch_seed=seed,
+            train_data_file=run_config["train_input_file"],
+            val_data_file=run_config["val_input_file"],
+        )
 
     checkpoint_dir = os.path.join(output_dir, "checkpoint")
     ckpt_path = run_config.get("ckpt_path", get_latest_checkpoint(checkpoint_dir))
@@ -355,6 +373,7 @@ def train(override_config_path: str):
         last_global_step = int(sd['global_step'])
         model_module.resume_last_lr_step(last_global_step)
 
+    # Do we need this?
     data_module.prepare_data()
     data_module.setup("fit")
 
@@ -367,6 +386,17 @@ def train(override_config_path: str):
         save_top_k=1,
         save_on_train_epoch_end=True,  # before validation
     )
+
+    # mc = ModelCheckpoint(
+    #     dirpath=checkpoint_dir,  # Directory to save checkpoints
+    #     filename="epoch{epoch:02d}-val_ligand_rmsd{val/ligand_alignment_rmsd:.4f}",  # Filename format for best
+    #     monitor="val/ligand_alignment_rmsd",  # Metric to monitor
+    #     mode="min",  # We want the lowest `ligand_rmsd`
+    #     save_top_k=1,  # Save only the best model based on `ligand_rmsd`
+    #     save_last=True,  # Always save the last epoch
+    #     every_n_epochs=1,  # Save a checkpoint every epoch
+    #     save_on_train_epoch_end=True,  # before validation
+    # )
     callbacks.append(mc)
 
     lr_monitor = LearningRateMonitor(logging_interval="step")
