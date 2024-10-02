@@ -135,7 +135,7 @@ class StructureInputEmbedder(nn.Module):
         # print("d shape", d.shape, d[0][0][:10])
 
         if prot_distogram_mask is not None:
-            expanded_d = torch.cat([d, torch.zeros(*d.shape[:-1], 1)], dim=-1)
+            expanded_d = torch.cat([d, torch.zeros(*d.shape[:-1], 1, device=d.device)], dim=-1)
 
             # Step 2: Create a mask where `input_positions_masked` is 0
             # Use broadcasting and tensor operations directly without additional variables

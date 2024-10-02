@@ -330,6 +330,7 @@ def train(override_config_path: str):
     output_dir = run_config["train_output_dir"]
     os.makedirs(output_dir, exist_ok=True)
 
+    print("Starting train", time.time())
     config = model_config(
         run_config.get("stage", "initial_training"),
         train=True,
@@ -337,11 +338,13 @@ def train(override_config_path: str):
     )
     config = override_config(config, run_config.get("override_conf", {}))
     accumulate_grad_batches = run_config.get("accumulate_grad_batches", 1)
+    print("config loaded", time.time())
 
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device_name = "cuda" if torch.cuda.is_available() else "cpu"
     # device_name = "mps" if device_name == "cpu" and torch.backends.mps.is_available() else device_name
     model_module = ModelWrapper(config)
+    print("model loaded", time.time())
 
     # device_name = "cpu"
 
@@ -363,6 +366,7 @@ def train(override_config_path: str):
             train_data_file=run_config["train_input_file"],
             val_data_file=run_config["val_input_file"],
         )
+    print("data module loaded", time.time())
 
     checkpoint_dir = os.path.join(output_dir, "checkpoint")
     ckpt_path = run_config.get("ckpt_path", get_latest_checkpoint(checkpoint_dir))
@@ -445,6 +449,7 @@ def train(override_config_path: str):
         # profiler=AdvancedProfiler(),
     )
 
+    print("Starting fit", time.time())
     trainer.fit(
         model_module,
         datamodule=data_module,
