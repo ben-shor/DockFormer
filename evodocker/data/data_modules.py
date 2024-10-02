@@ -1,6 +1,7 @@
 import copy
 import itertools
 import time
+import traceback
 from collections import Counter
 from functools import partial
 import json
@@ -503,18 +504,31 @@ class DockFormerClusteredDataset(torch.utils.data.Dataset):
         self._generator = generator
 
     def __getitem__(self, idx):
-        cluster = self._clusters[idx]
-        # choose random from cluster
-        input_file = cluster[torch.randint(0, len(cluster), (1,), generator=self._generator).item()]
+        try:
+            cluster = self._clusters[idx]
+            # choose random from cluster
+            input_file = cluster[torch.randint(0, len(cluster), (1,), generator=self._generator).item()]
 
-        return parse_input_json(
-            input_path=os.path.join(self._data_dir, input_file),
-            mode=self.mode,
-            config=self.config,
-            data_pipeline=self.data_pipeline,
-            data_dir=self._data_dir,
-            idx=idx,
-        )
+            return parse_input_json(
+                input_path=os.path.join(self._data_dir, input_file),
+                mode=self.mode,
+                config=self.config,
+                data_pipeline=self.data_pipeline,
+                data_dir=self._data_dir,
+                idx=idx,
+            )
+        except Exception as e:
+            print("ERROR in loading", e)
+            traceback.print_exc()
+            return parse_input_json(
+                input_path=os.path.join(self._data_dir, self._clusters[0][0]),
+                mode=self.mode,
+                config=self.config,
+                data_pipeline=self.data_pipeline,
+                data_dir=self._data_dir,
+                idx=idx,
+            )
+
 
     def __len__(self):
         return len(self._clusters)
