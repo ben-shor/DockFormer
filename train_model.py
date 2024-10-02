@@ -392,17 +392,17 @@ def train(override_config_path: str):
         save_on_train_epoch_end=True,  # before validation
     )
 
-    # mc = ModelCheckpoint(
-    #     dirpath=checkpoint_dir,  # Directory to save checkpoints
-    #     filename="epoch{epoch:02d}-val_ligand_rmsd{val/ligand_alignment_rmsd:.4f}",  # Filename format for best
-    #     monitor="val/ligand_alignment_rmsd",  # Metric to monitor
-    #     mode="min",  # We want the lowest `ligand_rmsd`
-    #     save_top_k=1,  # Save only the best model based on `ligand_rmsd`
-    #     save_last=True,  # Always save the last epoch
-    #     every_n_epochs=1,  # Save a checkpoint every epoch
-    #     save_on_train_epoch_end=True,  # before validation
-    # )
+    mc2 = ModelCheckpoint(
+        dirpath=checkpoint_dir,  # Directory to save checkpoints
+        filename="step{step}_lig_rmsd{val/ligand_alignment_rmsd:.2f}",  # Filename format for best
+        monitor="val/ligand_alignment_rmsd",  # Metric to monitor
+        mode="min",  # We want the lowest `ligand_rmsd`
+        save_top_k=1,  # Save only the best model based on `ligand_rmsd`
+        every_n_epochs=1,  # Save a checkpoint every epoch
+        auto_insert_metric_name=False
+    )
     callbacks.append(mc)
+    callbacks.append(mc2)
 
     lr_monitor = LearningRateMonitor(logging_interval="step")
     callbacks.append(lr_monitor)
