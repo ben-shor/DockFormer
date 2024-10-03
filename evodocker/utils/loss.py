@@ -1136,11 +1136,11 @@ class AlphaFoldLoss(nn.Module):
                 #        logging.warning(f"{k}: is nan")
                 # logging.warning(f"{loss_name}: {loss}")
                 logging.warning(f"{loss_name} loss is NaN. Skipping...")
-                # loss = loss.new_tensor(0., requires_grad=True)
-            else:
-                cum_loss = cum_loss + weight * loss
-                losses[loss_name] = loss.detach().clone()
-                loss_time_took[loss_name] = time.time() - start_time
+                loss = loss.new_tensor(0., requires_grad=True)
+            # else:
+            cum_loss = cum_loss + weight * loss
+            losses[loss_name] = loss.detach().clone()
+            loss_time_took[loss_name] = time.time() - start_time
         losses["unscaled_loss"] = cum_loss.detach().clone()
         # print("loss took: ", round(time.time() % 10000, 3),
         #       sorted(loss_time_took.items(), key=lambda x: x[1], reverse=True))
