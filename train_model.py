@@ -239,7 +239,7 @@ class ModelWrapper(pl.LightningModule):
         # print("inter_contacts recall", recall, "precision", precision, tp, fp, fn, torch.ones_like(gt_contacts).sum())
 
         # --- Affinity
-        if batch["affinity_loss_factor"].sum() > 0:
+        if batch["affinity_loss_factor"].sum() > 0.1:
             # print("affinity loss factor", batch["affinity_loss_factor"].sum())
             gt_affinity = batch["affinity"].squeeze(-1)
             affinity_linspace = torch.linspace(0, 15, 32, device=batch["affinity"].device)
@@ -455,8 +455,8 @@ def train(override_config_path: str):
 
     strategy_params = {"strategy": "auto"}
     if run_config.get("multi_node", False):
-        # strategy_params["strategy"] = "ddp"
-        strategy_params["strategy"] = "ddp_find_unused_parameters_true"
+        strategy_params["strategy"] = "ddp"
+        # strategy_params["strategy"] = "ddp_find_unused_parameters_true" # this causes issues with checkpointing...
         strategy_params["num_nodes"] = run_config["multi_node"]["num_nodes"]
         strategy_params["devices"] = run_config["multi_node"]["devices"]
 

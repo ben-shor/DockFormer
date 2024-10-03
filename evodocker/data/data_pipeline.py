@@ -397,7 +397,8 @@ def parse_input_json(input_path: str, mode: str, config: mlc.ConfigDict, data_pi
 
         affinity_loss_factor = torch.tensor([1.0], dtype=torch.float32)
         if input_data["affinity"] is None:
-            affinity_loss_factor = torch.tensor([0.0], dtype=torch.float32)
+            eps = 1e-6
+            affinity_loss_factor = torch.tensor([eps], dtype=torch.float32)
             affinity = torch.tensor([0.0], dtype=torch.float32)
         else:
             affinity = torch.tensor([input_data["affinity"]], dtype=torch.float32)
