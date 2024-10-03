@@ -48,7 +48,7 @@ class ModelWrapper(pl.LightningModule):
         self.last_lr_step = -1
 
         self.aggregated_metrics = {}
-        self.log_agg_every_n_steps = 100
+        self.log_agg_every_n_steps = 50  # match Trainer(log_every_n_steps=50)
 
     def forward(self, batch):
         return self.model(batch)
