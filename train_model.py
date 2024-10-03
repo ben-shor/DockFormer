@@ -455,7 +455,8 @@ def train(override_config_path: str):
 
     strategy_params = {"strategy": "auto"}
     if run_config.get("multi_node", False):
-        strategy_params["strategy"] = "ddp"
+        # strategy_params["strategy"] = "ddp"
+        strategy_params["strategy"] = "ddp_find_unused_parameters_true"
         strategy_params["num_nodes"] = run_config["multi_node"]["num_nodes"]
         strategy_params["devices"] = run_config["multi_node"]["devices"]
 
