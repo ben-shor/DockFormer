@@ -239,7 +239,7 @@ class ModelWrapper(pl.LightningModule):
         # print("inter_contacts recall", recall, "precision", precision, tp, fp, fn, torch.ones_like(gt_contacts).sum())
 
         # --- Affinity
-        if batch["affinity_loss_factor"].sum() > 0.1:
+        if True or batch["affinity_loss_factor"].sum() > 0.1:
             # print("affinity loss factor", batch["affinity_loss_factor"].sum())
             gt_affinity = batch["affinity"].squeeze(-1)
             affinity_linspace = torch.linspace(0, 15, 32, device=batch["affinity"].device)
