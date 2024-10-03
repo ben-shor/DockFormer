@@ -47,13 +47,16 @@ class ModelWrapper(pl.LightningModule):
         self.cached_weights = None
         self.last_lr_step = -1
 
+        self.aggregated_metrics = {}
+        self.log_agg_every_n_steps = 100
+
     def forward(self, batch):
         return self.model(batch)
 
     def _log(self, loss_breakdown, batch, outputs, train=True):
         phase = "train" if train else "val"
         for loss_name, indiv_loss in loss_breakdown.items():
-            print("logging loss", loss_name, indiv_loss, flush=True)
+            # print("logging loss", loss_name, indiv_loss, flush=True)
             self.log(
                 f"{phase}/{loss_name}", 
                 indiv_loss, 
@@ -61,13 +64,17 @@ class ModelWrapper(pl.LightningModule):
             )
 
             if train:
+                agg_name = f"{phase}/{loss_name}_agg"
+                if agg_name not in self.aggregated_metrics:
+                    self.aggregated_metrics[agg_name] = []
+                self.aggregated_metrics[agg_name].append(float(indiv_loss))
                 self.log(
                     f"{phase}/{loss_name}_epoch",
                     indiv_loss,
                     on_step=False, on_epoch=True, logger=True, sync_dist=True
                 )
 
-        print("logging validation metrics", flush=True)
+        # print("logging validation metrics", flush=True)
         with torch.no_grad():
             other_metrics = self._compute_validation_metrics(
                 batch, 
@@ -76,12 +83,23 @@ class ModelWrapper(pl.LightningModule):
             )
 
         for k, v in other_metrics.items():
-            print("logging metric", k, v, flush=True)
+            # print("logging metric", k, v, flush=True)
+            if train:
+                agg_name = f"{phase}/{k}_agg"
+                if agg_name not in self.aggregated_metrics:
+                    self.aggregated_metrics[agg_name] = []
+                self.aggregated_metrics[agg_name].append(float(torch.mean(v)))
             self.log(
                 f"{phase}/{k}",
                 torch.mean(v),
                 on_step=False, on_epoch=True, logger=True, sync_dist=True
             )
+
+        if train and any([len(v) >= self.log_agg_every_n_steps for v in self.aggregated_metrics.values()]):
+            for k, v in self.aggregated_metrics.items():
+                print("logging agg", k, len(v), sum(v) / len(v), flush=True)
+                self.log(k, sum(v) / len(v), on_step=True, on_epoch=False, logger=True, sync_dist=True)
+                self.aggregated_metrics[k] = []
 
     def training_step(self, batch, batch_idx):
         if self.ema.device != batch["aatype"].device:
