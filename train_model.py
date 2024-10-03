@@ -53,6 +53,7 @@ class ModelWrapper(pl.LightningModule):
     def _log(self, loss_breakdown, batch, outputs, train=True):
         phase = "train" if train else "val"
         for loss_name, indiv_loss in loss_breakdown.items():
+            print("logging loss", loss_name, indiv_loss, flush=True)
             self.log(
                 f"{phase}/{loss_name}", 
                 indiv_loss, 
@@ -66,6 +67,7 @@ class ModelWrapper(pl.LightningModule):
                     on_step=False, on_epoch=True, logger=True, sync_dist=True
                 )
 
+        print("logging validation metrics", flush=True)
         with torch.no_grad():
             other_metrics = self._compute_validation_metrics(
                 batch, 
@@ -74,6 +76,7 @@ class ModelWrapper(pl.LightningModule):
             )
 
         for k, v in other_metrics.items():
+            print("logging metric", k, v, flush=True)
             self.log(
                 f"{phase}/{k}",
                 torch.mean(v),
@@ -386,7 +389,7 @@ def train(override_config_path: str):
     mc = ModelCheckpoint(
         dirpath=checkpoint_dir,
         # every_n_epochs=1,
-        every_n_train_steps=1000,
+        every_n_train_steps=250,
         auto_insert_metric_name=False,
         save_top_k=1,
         save_on_train_epoch_end=True,  # before validation
