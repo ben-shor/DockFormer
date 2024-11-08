@@ -67,7 +67,12 @@ def load_models_from_command_line(config, model_device, model_checkpoint_path, o
             checkpoint_basename = get_model_basename(path)
             assert os.path.isfile(path), f"Model checkpoint not found at {path}"
             ckpt_path = path
-            d = torch.load(ckpt_path)
+
+            try:
+                d = torch.load(ckpt_path)
+            except RuntimeError:
+                print("Loading model on CPU")
+                d = torch.load(ckpt_path, map_location='cpu')
 
             if "ema" in d:
                 # The public weights have had this done to them already
