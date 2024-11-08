@@ -14,17 +14,17 @@ from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.profilers import AdvancedProfiler
 
-from evodocker.config import model_config
-from evodocker.data.data_modules import OpenFoldDataModule, DockFormerDataModule
-from evodocker.model.model import AlphaFold
-from evodocker.utils import residue_constants
-from evodocker.utils.exponential_moving_average import ExponentialMovingAverage
-from evodocker.utils.loss import AlphaFoldLoss, lddt_ca
-from evodocker.utils.lr_schedulers import AlphaFoldLRScheduler
-from evodocker.utils.script_utils import get_latest_checkpoint
-from evodocker.utils.superimposition import superimpose
-from evodocker.utils.tensor_utils import tensor_tree_map
-from evodocker.utils.validation_metrics import (
+from dockformer.config import model_config
+from dockformer.data.data_modules import OpenFoldDataModule, DockFormerDataModule
+from dockformer.model.model import AlphaFold
+from dockformer.utils import residue_constants
+from dockformer.utils.exponential_moving_average import ExponentialMovingAverage
+from dockformer.utils.loss import AlphaFoldLoss, lddt_ca
+from dockformer.utils.lr_schedulers import AlphaFoldLRScheduler
+from dockformer.utils.script_utils import get_latest_checkpoint
+from dockformer.utils.superimposition import superimpose
+from dockformer.utils.tensor_utils import tensor_tree_map
+from dockformer.utils.validation_metrics import (
     drmsd,
     gdt_ts,
     gdt_ha,

@@ -5,9 +5,9 @@ import sys
 import torch
 import pytorch_lightning as pl
 
-from evodocker.config import model_config
-from evodocker.model.model import AlphaFold
-from evodocker.utils.script_utils import get_latest_checkpoint
+from dockformer.config import model_config
+from dockformer.model.model import AlphaFold
+from dockformer.utils.script_utils import get_latest_checkpoint
 from run_pretrained_model import override_config
 
 

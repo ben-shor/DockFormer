@@ -7,7 +7,7 @@ import numpy as np
 import os
 import pickle
 
-from evodocker.data.data_modules import OpenFoldSingleDataset
+from dockformer.data.data_modules import OpenFoldSingleDataset
 
 logging.basicConfig()
 logger = logging.getLogger(__file__)

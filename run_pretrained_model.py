@@ -21,7 +21,7 @@ import numpy as np
 import os
 import pickle
 
-from evodocker.data.data_modules import OpenFoldSingleDataset
+from dockformer.data.data_modules import OpenFoldSingleDataset
 
 logging.basicConfig()
 logger = logging.getLogger(__file__)
@@ -40,10 +40,10 @@ if (
 
 torch.set_grad_enabled(False)
 
-from evodocker.config import model_config
-from evodocker.utils.script_utils import (load_models_from_command_line, run_model, save_output_structure,
-                                          get_latest_checkpoint)
-from evodocker.utils.tensor_utils import tensor_tree_map
+from dockformer.config import model_config
+from dockformer.utils.script_utils import (load_models_from_command_line, run_model, save_output_structure,
+                                           get_latest_checkpoint)
+from dockformer.utils.tensor_utils import tensor_tree_map
 
 
 def list_files_with_extensions(dir, extensions):
@@ -161,7 +161,7 @@ def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_re
         if not skip_relaxation:
             # Relax the prediction.
             logger.info(f"Running relaxation on {protein_output_path}...")
-            from evodocker.utils.relax import relax_complex
+            from dockformer.utils.relax import relax_complex
             try:
                 relax_complex(protein_output_path,
                               ligand_output_path,

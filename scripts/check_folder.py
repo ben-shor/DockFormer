@@ -3,8 +3,8 @@ import os
 import sys
 from typing import Optional
 
-from evodocker.config import model_config
-from evodocker.data.data_modules import OpenFoldSingleDataset
+from dockformer.config import model_config
+from dockformer.data.data_modules import OpenFoldSingleDataset
 
 
 def override_config(base_config, overriding_config):
