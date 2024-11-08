@@ -334,6 +334,10 @@ def parse_input_json(input_path: str, mode: str, config: mlc.ConfigDict, data_pi
         # print(ones_indices)
         protein_distogram_mask[ones_indices] = 1
         input_positions = input_positions * (1 - protein_distogram_mask).unsqueeze(-1)
+    elif mode == "predict":
+        # ignore all positions where pseudo_beta is 0, 0, 0
+        protein_distogram_mask = (input_positions == 0).all(dim=-1).float()
+        # print("Ignoring residues", torch.nonzero(distogram_mask).flatten())
 
     # Implement ligand as amino acid type 20
     ligand_aatype = 20 * torch.ones((n_lig,), dtype=input_protein_feats["aatype"].dtype)
