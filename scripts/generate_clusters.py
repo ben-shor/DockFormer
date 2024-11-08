@@ -30,4 +30,4 @@ if __name__ == '__main__':
     if len(sys.argv) != 3:
         print("Usage: <script> <jsons_folder> <output_file_path>")
     else:
-        generate_clusters_file(os.path.abspath(sys.argv[1]), os.path.abspath(sys.argv[1]))
+        generate_clusters_file(os.path.abspath(sys.argv[1]), os.path.abspath(sys.argv[2]))
