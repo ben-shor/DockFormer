@@ -14,7 +14,7 @@ from rdkit.Geometry import Point3D
 from run_pretrained_model import run_on_folder
 
 
-TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/processed/plinder_jsons_test"
+TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/202409_plinder/processed/plinder_jsons_test_small"
 OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/test_set_plinder/output"
 
 
@@ -286,11 +286,11 @@ def main(config_path):
     # output_dir = os.path.join(POSEBUSTERS_OUTPUT, f"output_23_run86_260K")
 
     if not use_relaxed:
-        jobnames = ["_".join(filename.split("_")[:-1])
+        jobnames = ["_".join(filename.split("_")[:-2])
                     for filename in os.listdir(os.path.join(output_dir, "predictions"))
                     if filename.endswith("_protein.pdb") and "relaxed" not in filename]
     else:
-        jobnames = ["_".join(filename.split("_")[:-2])
+        jobnames = ["_".join(filename.split("_")[:-3])
                     for filename in os.listdir(os.path.join(output_dir, "predictions"))
                     if filename.endswith("_protein_relaxed.pdb")]
         # jobnames = ["_".join(filename.split("_")[1:3])
@@ -318,7 +318,7 @@ def main(config_path):
         relaxed_protein_path = os.path.join(output_dir, "predictions", f"{jobname}_protein_relaxed.pdb")
         relaxed_ligand_path = os.path.join(output_dir, "predictions", f"{jobname}_ligand_relaxed.sdf")
 
-        affinity_output_path = os.path.join(output_dir, "predictions", f"{jobname}_affinity.json")
+        affinity_output_path = os.path.join(output_dir, "predictions", f"{jobname}_predicted_affinity.json")
         pred_affinities = json.load(open(affinity_output_path, "r"))
 
         input_pdb_path = os.path.join(parent_dir, input_data["input_structure"])
