@@ -140,7 +140,7 @@ def get_rmsd(gt_protein_path: str, gt_ligand_path: str, pred_protein_path: str, 
         gt_pocket_res_ids.append((res.parent.id, str(res.get_id()[1]) + str(res.get_id()[2])))
 
     pocket_most_common_chain = max(set([res_id[0] for res_id in gt_pocket_res_ids]),
-                                     key=[res_id[0] for res_id in gt_pocket_res_ids].count)
+                                   key=[res_id[0] for res_id in gt_pocket_res_ids].count)
     print(f"Number of interface residues: {len(indices)} {pocket_most_common_chain} {gt_pocket_res_ids}")
 
     super_imposer = Bio.PDB.Superimposer()
@@ -305,13 +305,15 @@ def main(config_path):
         input_data = json.load(open(input_json, "r"))
         parent_dir = os.path.dirname(TEST_SET_PATH)
 
-        smiles = input_data["input_smiles"][0]
+        smiles = input_data["input_smiles_list"][0]
         gt_affinity = input_data["affinity"]
 
         gt_protein_path = os.path.join(parent_dir, input_data["gt_structure"])
-        assert len(input_data["ref_sdf_list"]) == 1, "Multiple ligands not supported"
+        # assert len(input_data["ref_sdf_list"]) == 1, "Multiple ligands not supported"
+        if len(input_data["ref_sdf_list"]) > 1:
+            print("**** Multiple ligands not supported, taking first", jobname)
 
-        gt_ligand_path = os.path.join(parent_dir, input_data["ref_sdf_list"][0])
+        gt_ligand_path = os.path.join(parent_dir, input_data["gt_sdf_list"][0])
         pred_protein_path = os.path.join(output_dir, "predictions", f"{jobname}_predicted_protein.pdb")
         pred_ligand_path = os.path.join(output_dir, "predictions", f"{jobname}_predicted_ligand_0.sdf")
 
