@@ -16,7 +16,7 @@ from run_pretrained_model import run_on_folder
 
 TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/202409_plinder/processed/plinder_jsons_test_small"
 OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/test_set_plinder/output"
-
+SHOULD_SKIP_STRUCTURES = False
 
 def get_pdb_model(pdb_path: str):
     pdb_parser = Bio.PDB.PDBParser(QUIET=True)
@@ -308,59 +308,60 @@ def main(config_path):
         smiles = input_data["input_smiles_list"][0]
         gt_affinity = input_data["affinity"]
 
-        gt_protein_path = os.path.join(parent_dir, input_data["gt_structure"])
-        # assert len(input_data["ref_sdf_list"]) == 1, "Multiple ligands not supported"
-        if len(input_data["ref_sdf_list"]) > 1:
-            print("**** Multiple ligands not supported, taking first", jobname)
-
-        gt_ligand_path = os.path.join(parent_dir, input_data["gt_sdf_list"][0])
-        pred_protein_path = os.path.join(output_dir, "predictions", f"{jobname}_predicted_protein.pdb")
-        pred_ligand_path = os.path.join(output_dir, "predictions", f"{jobname}_predicted_ligand_0.sdf")
-
-        relaxed_protein_path = os.path.join(output_dir, "predictions", f"{jobname}_protein_relaxed.pdb")
-        relaxed_ligand_path = os.path.join(output_dir, "predictions", f"{jobname}_ligand_relaxed.sdf")
-
         affinity_output_path = os.path.join(output_dir, "predictions", f"{jobname}_predicted_affinity.json")
         pred_affinities = json.load(open(affinity_output_path, "r"))
+        all_rmsds[jobname] = {"gt_affinity": gt_affinity, **pred_affinities}
 
-        input_pdb_path = os.path.join(parent_dir, input_data["input_structure"])
+        if not SHOULD_SKIP_STRUCTURES:
+            gt_protein_path = os.path.join(parent_dir, input_data["gt_structure"])
+            # assert len(input_data["ref_sdf_list"]) == 1, "Multiple ligands not supported"
+            if len(input_data["ref_sdf_list"]) > 1:
+                print("**** Multiple ligands not supported, taking first", jobname)
 
-        if use_relaxed and not os.path.exists(relaxed_ligand_path):
-            print("skipping, no relaxed", jobname)
-            continue
+            gt_ligand_path = os.path.join(parent_dir, input_data["gt_sdf_list"][0])
+            pred_protein_path = os.path.join(output_dir, "predictions", f"{jobname}_predicted_protein.pdb")
+            pred_ligand_path = os.path.join(output_dir, "predictions", f"{jobname}_predicted_ligand_0.sdf")
 
-        print(jobname)
-        try:
-            if use_relaxed:
-                rmsds = get_rmsd(gt_protein_path, gt_ligand_path, relaxed_protein_path, relaxed_ligand_path,
-                                 save_aligned=save_aligned)
-            else:
-                if not use_reembed:
-                    smiles = None
-                rmsds = get_rmsd(gt_protein_path, gt_ligand_path, pred_protein_path, pred_ligand_path,
-                                 reembed_smiles=smiles, save_aligned=save_aligned)
-        except Exception as e:
-            print(f"Failed to compute RMSD for {jobname}", e)
-            # raise e
-            continue
+            relaxed_protein_path = os.path.join(output_dir, "predictions", f"{jobname}_protein_relaxed.pdb")
+            relaxed_ligand_path = os.path.join(output_dir, "predictions", f"{jobname}_ligand_relaxed.sdf")
 
-        ligand_rmsd, pocket_rmsd, protein_rmsd = rmsds
-        input_protein_to_pred_rmsd = simple_get_rmsd(input_pdb_path, pred_protein_path)
-        input_protein_to_gt_rmsd = simple_get_rmsd(input_pdb_path, gt_protein_path)
+            input_pdb_path = os.path.join(parent_dir, input_data["input_structure"])
 
-        print(ligand_rmsd, pocket_rmsd, protein_rmsd, input_protein_to_pred_rmsd, input_protein_to_gt_rmsd)
-        all_rmsds[jobname] = {"ligand_rmsd": ligand_rmsd, "pocket_rmsd": pocket_rmsd, "protein_rmsd": protein_rmsd,
-                              "input_protein_to_pred_rmsd": input_protein_to_pred_rmsd,
-                              "input_protein_to_gt_rmsd": input_protein_to_gt_rmsd,
-                              "gt_affinity": gt_affinity, **pred_affinities
-                              }
+            if use_relaxed and not os.path.exists(relaxed_ligand_path):
+                print("skipping, no relaxed", jobname)
+                continue
 
-    print(all_rmsds)
+            print(jobname)
+            try:
+                if use_relaxed:
+                    rmsds = get_rmsd(gt_protein_path, gt_ligand_path, relaxed_protein_path, relaxed_ligand_path,
+                                     save_aligned=save_aligned)
+                else:
+                    if not use_reembed:
+                        smiles = None
+                    rmsds = get_rmsd(gt_protein_path, gt_ligand_path, pred_protein_path, pred_ligand_path,
+                                     reembed_smiles=smiles, save_aligned=save_aligned)
+            except Exception as e:
+                print(f"Failed to compute RMSD for {jobname}", e)
+                # raise e
+                continue
+
+            ligand_rmsd, pocket_rmsd, protein_rmsd = rmsds
+            input_protein_to_pred_rmsd = simple_get_rmsd(input_pdb_path, pred_protein_path)
+            input_protein_to_gt_rmsd = simple_get_rmsd(input_pdb_path, gt_protein_path)
+            print(ligand_rmsd, pocket_rmsd, protein_rmsd, input_protein_to_pred_rmsd, input_protein_to_gt_rmsd)
+
+            all_rmsds[jobname] = {"ligand_rmsd": ligand_rmsd, "pocket_rmsd": pocket_rmsd, "protein_rmsd": protein_rmsd,
+                                  "input_protein_to_pred_rmsd": input_protein_to_pred_rmsd,
+                                  "input_protein_to_gt_rmsd": input_protein_to_gt_rmsd,
+                                  **all_rmsds[jobname]
+                                  }
+            print(all_rmsds)
+            ligand_rmsds = {k: v["ligand_rmsd"] for k, v in all_rmsds.items()}
+            print("Total: ", len(ligand_rmsds), "Under 2: ", sum(1 for rmsd in ligand_rmsds.values() if rmsd < 2),
+                  "Under 5: ", sum(1 for rmsd in ligand_rmsds.values() if rmsd < 5))
+
     json.dump(all_rmsds, open(os.path.join(output_dir, "rmsds.json"), "w"), indent=4)
-
-    ligand_rmsds = {k: v["ligand_rmsd"] for k, v in all_rmsds.items()}
-    print("Total: ", len(ligand_rmsds), "Under 2: ", sum(1 for rmsd in ligand_rmsds.values() if rmsd < 2),
-          "Under 5: ", sum(1 for rmsd in ligand_rmsds.values() if rmsd < 5))
 
 
 if __name__ == "__main__":
