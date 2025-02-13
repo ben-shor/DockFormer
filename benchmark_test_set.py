@@ -423,7 +423,8 @@ def main(config_path):
                                   **all_rmsds[jobname]
                                   }
     print(all_rmsds)
-    ligand_rmsds = {k: v["ligand_rmsd"] for k, v in all_rmsds.items()}
+    print("real total", len(all_rmsds))
+    ligand_rmsds = {k: v["ligand_rmsd"] for k, v in all_rmsds.items() if "ligand_rmsd" in v}
     print("Total: ", len(ligand_rmsds), "Under 2: ", sum(1 for rmsd in ligand_rmsds.values() if rmsd < 2),
           "Under 5: ", sum(1 for rmsd in ligand_rmsds.values() if rmsd < 5))
 
