@@ -341,7 +341,7 @@ def main(config_path):
     os.makedirs(output_dir, exist_ok=True)
 
     run_on_folder(TEST_SET_PATH, output_dir, config_path, long_sequence_inference=True)
-    # output_dir = os.path.join(POSEBUSTERS_OUTPUT, f"output_0")
+    # output_dir = os.path.join(OUTPUT_PATH, f"output_0")
     # output_dir = os.path.join(POSEBUSTERS_OUTPUT, f"output_10_run61")
     # output_dir = os.path.join(POSEBUSTERS_OUTPUT, f"output_18_run85_67K")
     # output_dir = os.path.join(POSEBUSTERS_OUTPUT, f"output_18_run85_67K")
@@ -410,8 +410,11 @@ def main(config_path):
                 continue
 
             ligand_rmsd, pocket_rmsd, protein_rmsd = rmsds
-            input_protein_to_pred_rmsd = simple_get_rmsd(input_pdb_path, pred_protein_path)
-            input_protein_to_gt_rmsd = simple_get_rmsd(input_pdb_path, gt_protein_path)
+            try:
+                input_protein_to_pred_rmsd = simple_get_rmsd(input_pdb_path, pred_protein_path)
+                input_protein_to_gt_rmsd = simple_get_rmsd(input_pdb_path, gt_protein_path)
+            except:
+                input_protein_to_pred_rmsd = input_protein_to_gt_rmsd = None
             print(ligand_rmsd, pocket_rmsd, protein_rmsd, input_protein_to_pred_rmsd, input_protein_to_gt_rmsd)
 
             all_rmsds[jobname] = {"ligand_rmsd": ligand_rmsd, "pocket_rmsd": pocket_rmsd, "protein_rmsd": protein_rmsd,
