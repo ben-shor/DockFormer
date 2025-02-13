@@ -7,6 +7,7 @@ import Bio.PDB
 import Bio.SeqUtils
 import numpy as np
 import rdkit.Chem.rdMolAlign
+from Bio import pairwise2
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolAlign
 from rdkit.Geometry import Point3D
@@ -17,6 +18,22 @@ from run_pretrained_model import run_on_folder
 TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/202409_plinder/processed/plinder_jsons_test_small"
 OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/test_set_plinder/output"
 SHOULD_SKIP_STRUCTURES = False
+
+TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/202409_plinder/processed/affinity_screen_dataset_ic50/jsons"
+OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/test_set_plinder/output_affinity_screen_ic50"
+SHOULD_SKIP_STRUCTURES = True
+
+TEST_SET_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/CASF2016/CASF-2016/dockformer_jsons_dockformer_pocket"
+OUTPUT_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/CASF2016/dockformer_predictions_20250121"
+TEST_SET_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/jsons"
+OUTPUT_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/output"
+SHOULD_SKIP_STRUCTURES = False
+
+  # TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/202409_plinder/processed/plinder_jsons_train_small_for_test"
+  # TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/202409_plinder/processed/plinder_jsons_test"
+  # OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/test_set_plinder"
+  # SHOULD_SKIP_STRUCTURES = False
+
 
 def get_pdb_model(pdb_path: str):
     pdb_parser = Bio.PDB.PDBParser(QUIET=True)
@@ -62,6 +79,52 @@ def create_embeded_molecule(ref_mol: Chem.Mol, smiles: str):
     return target_mol, conformer_ids[best_rmsd_index]
 
 
+def get_matching_residues(gt_chain, pred_chain):
+    """
+    Returns lists of matching residues between two chains using sequence alignment.
+    """
+    # Convert residues to sequences
+    gt_seq = ''.join([Bio.PDB.Polypeptide.three_to_one(res.get_resname())
+                      for res in gt_chain if "CA" in res])
+    pred_seq = ''.join([Bio.PDB.Polypeptide.three_to_one(res.get_resname())
+                        for res in pred_chain if "CA" in res])
+
+    # Perform global alignment
+    alignments = pairwise2.align.globalxx(gt_seq, pred_seq)
+    best_alignment = alignments[0]
+    aligned_gt, aligned_pred = best_alignment[0], best_alignment[1]
+
+    # Calculate sequence identity
+    matches = sum(1 for a, b in zip(aligned_gt, aligned_pred) if a == b)
+    seq_identity = (matches / len(aligned_gt)) * 100
+
+    if seq_identity < 90:
+        raise ValueError(f"Sequence identity {seq_identity:.1f}% is below 90% threshold")
+
+    # Get residues with CA atoms
+    gt_res = [res for res in gt_chain if "CA" in res]
+    pred_res = [res for res in pred_chain if "CA" in res]
+
+    # Map aligned sequences back to residues
+    matching_pairs = []
+    gt_idx = pred_idx = 0
+
+    for a, b in zip(aligned_gt, aligned_pred):
+        if a != '-' and b != '-' and a == b:  # Matching residues
+            if gt_idx < len(gt_res) and pred_idx < len(pred_res):
+                gt_r = gt_res[gt_idx]
+                pred_r = pred_res[pred_idx]
+                if Bio.PDB.Polypeptide.three_to_one(gt_r.get_resname()) == a:
+                    matching_pairs.append((gt_r, pred_r))
+
+        if a != '-':
+            gt_idx += 1
+        if b != '-':
+            pred_idx += 1
+
+    return matching_pairs
+
+
 def get_rmsd(gt_protein_path: str, gt_ligand_path: str, pred_protein_path: str, pred_ligand_path:str,
              reembed_smiles: Optional[str] = None, save_aligned: bool = False):
 
@@ -76,12 +139,9 @@ def get_rmsd(gt_protein_path: str, gt_ligand_path: str, pred_protein_path: str, 
     gt_res_id_to_res, pred_res_id_to_res = {}, {}
     res_name_map = {}
     for (gt_chain_id, pred_chain_id) in chain_name_map.items():
-        gt_res_in_chain = [res for res in gt_protein[gt_chain_id] if "CA" in res and
-                           not (Bio.SeqUtils.seq1(res.get_resname()) in ("X", "", " "))]
-        pred_res_in_chain = [res for res in pred_protein[pred_chain_id] if "CA" in res]
-        assert len(gt_res_in_chain) == len(pred_res_in_chain), "Different number of residues in proteins"
+        matching_pairs = get_matching_residues(gt_protein[gt_chain_id], pred_protein[pred_chain_id])
 
-        for gt_res, pred_res in zip(gt_res_in_chain, pred_res_in_chain):
+        for gt_res, pred_res in matching_pairs:
             assert gt_res.get_resname() == pred_res.get_resname(), "Different residue names"
             gt_res_id = (gt_chain_id, str(gt_res.get_id()[1]) + str(gt_res.get_id()[2]))
             pred_res_id = (pred_chain_id, str(pred_res.get_id()[1]) + str(pred_res.get_id()[2]))
@@ -211,6 +271,8 @@ def get_rmsd(gt_protein_path: str, gt_ligand_path: str, pred_protein_path: str, 
                 pred_res = pred_res_id_to_res[pred_res_id]
                 ref_atoms.append(gt_res["CA"])
                 sample_atoms.append(pred_res["CA"])
+            if not ref_atoms:
+                continue
             alt_super_imposer.set_atoms(ref_atoms, sample_atoms)
 
             alt_pred_ligand = Chem.Mol(original_pred_ligand)
@@ -279,6 +341,7 @@ def main(config_path):
     os.makedirs(output_dir, exist_ok=True)
 
     run_on_folder(TEST_SET_PATH, output_dir, config_path, long_sequence_inference=True)
+    # output_dir = os.path.join(POSEBUSTERS_OUTPUT, f"output_0")
     # output_dir = os.path.join(POSEBUSTERS_OUTPUT, f"output_10_run61")
     # output_dir = os.path.join(POSEBUSTERS_OUTPUT, f"output_18_run85_67K")
     # output_dir = os.path.join(POSEBUSTERS_OUTPUT, f"output_18_run85_67K")
@@ -305,7 +368,6 @@ def main(config_path):
         input_data = json.load(open(input_json, "r"))
         parent_dir = os.path.dirname(TEST_SET_PATH)
 
-        smiles = input_data["input_smiles_list"][0]
         gt_affinity = input_data["affinity"]
 
         affinity_output_path = os.path.join(output_dir, "predictions", f"{jobname}_predicted_affinity.json")
@@ -337,8 +399,9 @@ def main(config_path):
                     rmsds = get_rmsd(gt_protein_path, gt_ligand_path, relaxed_protein_path, relaxed_ligand_path,
                                      save_aligned=save_aligned)
                 else:
-                    if not use_reembed:
-                        smiles = None
+                    smiles = None
+                    if use_reembed:
+                        smiles = input_data["input_smiles_list"][0]
                     rmsds = get_rmsd(gt_protein_path, gt_ligand_path, pred_protein_path, pred_ligand_path,
                                      reembed_smiles=smiles, save_aligned=save_aligned)
             except Exception as e:
@@ -356,10 +419,10 @@ def main(config_path):
                                   "input_protein_to_gt_rmsd": input_protein_to_gt_rmsd,
                                   **all_rmsds[jobname]
                                   }
-            print(all_rmsds)
-            ligand_rmsds = {k: v["ligand_rmsd"] for k, v in all_rmsds.items()}
-            print("Total: ", len(ligand_rmsds), "Under 2: ", sum(1 for rmsd in ligand_rmsds.values() if rmsd < 2),
-                  "Under 5: ", sum(1 for rmsd in ligand_rmsds.values() if rmsd < 5))
+    print(all_rmsds)
+    ligand_rmsds = {k: v["ligand_rmsd"] for k, v in all_rmsds.items()}
+    print("Total: ", len(ligand_rmsds), "Under 2: ", sum(1 for rmsd in ligand_rmsds.values() if rmsd < 2),
+          "Under 5: ", sum(1 for rmsd in ligand_rmsds.values() if rmsd < 5))
 
     json.dump(all_rmsds, open(os.path.join(output_dir, "rmsds.json"), "w"), indent=4)
 
