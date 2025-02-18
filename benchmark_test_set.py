@@ -15,25 +15,26 @@ from rdkit.Geometry import Point3D
 from run_pretrained_model import run_on_folder
 
 
-TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/202409_plinder/processed/plinder_jsons_test_small"
-OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/test_set_plinder/output"
 SHOULD_SKIP_STRUCTURES = False
 
-TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/202409_plinder/processed/affinity_screen_dataset_ic50/jsons"
-OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/test_set_plinder/output_affinity_screen_ic50"
-SHOULD_SKIP_STRUCTURES = True
+# TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/202409_plinder/processed/plinder_jsons_test_small"
+# TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/202409_plinder/processed/plinder_jsons_train_small_for_test"
+# OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/test_set_plinder/output"
+#
+# TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/202409_plinder/processed/affinity_screen_dataset_ic50/jsons"
+# OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/test_set_plinder/output_affinity_screen_ic50"
 
-TEST_SET_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/CASF2016/CASF-2016/dockformer_jsons_dockformer_pocket"
-OUTPUT_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/CASF2016/dockformer_predictions_20250121"
-TEST_SET_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/jsons"
-OUTPUT_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/output"
-SHOULD_SKIP_STRUCTURES = False
+# TEST_SET_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/CASF2016/CASF-2016/dockformer_jsons_dockformer_pocket"
+# OUTPUT_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/CASF2016/dockformer_predictions_20250121"
+#
+# TEST_SET_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/jsons"
+# OUTPUT_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/output"
 
-  # TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/202409_plinder/processed/plinder_jsons_train_small_for_test"
-  # TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/202409_plinder/processed/plinder_jsons_test"
-  # OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/test_set_plinder"
-  # SHOULD_SKIP_STRUCTURES = False
+# TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/202409_plinder/processed/plinder_jsons_test"
+# OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/test_set_plinder/output"
 
+TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset2/input_json_with_gt"
+OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset2/output"
 
 def get_pdb_model(pdb_path: str):
     pdb_parser = Bio.PDB.PDBParser(QUIET=True)
@@ -327,8 +328,7 @@ def simple_get_rmsd(protein_path1: str, protein_path2: str):
     return super_imposer.rms
 
 
-
-def main(config_path):
+def main(config_path, ckpt_path=None):
     use_relaxed = False
     use_reembed = False
     save_aligned = False
@@ -340,7 +340,7 @@ def main(config_path):
     output_dir = os.path.join(OUTPUT_PATH, f"output_{i}")
     os.makedirs(output_dir, exist_ok=True)
 
-    run_on_folder(TEST_SET_PATH, output_dir, config_path, long_sequence_inference=True)
+    run_on_folder(TEST_SET_PATH, output_dir, config_path, long_sequence_inference=True, ckpt_path=ckpt_path)
     # output_dir = os.path.join(OUTPUT_PATH, f"output_0")
     # output_dir = os.path.join(POSEBUSTERS_OUTPUT, f"output_10_run61")
     # output_dir = os.path.join(POSEBUSTERS_OUTPUT, f"output_18_run85_67K")
@@ -433,4 +433,5 @@ def main(config_path):
 
 if __name__ == "__main__":
     config_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "run_config.json")
-    main(config_path)
+    ckpt_path = sys.argv[2] if len(sys.argv) > 2 else None
+    main(config_path, ckpt_path)

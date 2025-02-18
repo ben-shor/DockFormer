@@ -14,7 +14,7 @@
 # limitations under the License.
 import sys
 
-from env_consts import TEST_INPUT_DIR, TEST_OUTPUT_DIR, CKPT_PATH
+from env_consts import TEST_INPUT_DIR, TEST_OUTPUT_DIR
 import json
 import logging
 import numpy as np
@@ -60,16 +60,17 @@ def override_config(base_config, overriding_config):
 
 
 def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_relaxation=True,
-                  long_sequence_inference=False, skip_exists=False):
+                  long_sequence_inference=False, skip_exists=False, ckpt_path=None):
     config_preset = "initial_training"
     save_outputs = False
     device_name = "cuda" if torch.cuda.is_available() else "cpu"
 
     run_config = json.load(open(run_config_path))
 
-    ckpt_path = CKPT_PATH
     if ckpt_path is None:
         ckpt_path = get_latest_checkpoint(os.path.join(run_config["train_output_dir"], "checkpoint"))
+    else:
+        ckpt_path = os.path.abspath(ckpt_path)
     print("Using checkpoint: ", ckpt_path)
 
     config = model_config(config_preset, long_sequence_inference=long_sequence_inference)
