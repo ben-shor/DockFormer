@@ -418,19 +418,22 @@ def main(config_path, ckpt_path=None):
             gt_inter_contacts = get_inter_contacts(gt_protein_path, gt_ligand_path)
 
             min_len = min(len(gt_inter_contacts), len(pred_inter_contacts))
-            precision = len([i for i in pred_inter_contacts[:len(gt_inter_contacts)]
-                             if i in gt_inter_contacts]) / min_len
-            recall = len([i for i in gt_inter_contacts
-                          if i in pred_inter_contacts[:len(gt_inter_contacts)]]) / min_len
-            try:
-                from sklearn.metrics import roc_auc_score
-                y_label = [1 if i in gt_inter_contacts else 0 for i in pred_inter_contacts]
-                y_score = list(range(len(pred_inter_contacts), 0, -1))
-                auc_score = roc_auc_score(y_label, y_score)
-                auc_score = auc_score if not np.isnan(auc_score) else 0
-            except ImportError:
-                print("Failed to import sklearn, skipping auc")
-                auc_score = None
+            if min_len == 0:
+                precision = recall = auc_score = 0
+            else:
+                precision = len([i for i in pred_inter_contacts[:len(gt_inter_contacts)]
+                                 if i in gt_inter_contacts]) / min_len
+                recall = len([i for i in gt_inter_contacts
+                              if i in pred_inter_contacts[:len(gt_inter_contacts)]]) / min_len
+                try:
+                    from sklearn.metrics import roc_auc_score
+                    y_label = [1 if i in gt_inter_contacts else 0 for i in pred_inter_contacts]
+                    y_score = list(range(len(pred_inter_contacts), 0, -1))
+                    auc_score = roc_auc_score(y_label, y_score)
+                    auc_score = auc_score if not np.isnan(auc_score) else 0
+                except ImportError:
+                    print("Failed to import sklearn, skipping auc")
+                    auc_score = None
 
             try:
                 if use_relaxed:
