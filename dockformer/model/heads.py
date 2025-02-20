@@ -133,7 +133,7 @@ class Affinity1DPredictor(nn.Module):
         s = nn.functional.relu(self.linear1(s))
         mean_of_ligand = (s * ligand_mask.unsqueeze(-1)).sum(dim=1) / ligand_mask.sum(dim=1).unsqueeze(-1)
 
-        return self.out(s)
+        return self.out(mean_of_ligand)
 
 
 class AffinityClsTokenPredictor(nn.Module):
