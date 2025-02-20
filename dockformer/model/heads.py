@@ -50,6 +50,10 @@ class AuxiliaryHeads(nn.Module):
             **config["affinity_cls"],
         )
 
+        self.affinity_cls_reg = AffinityClsTokenPredictorRegression(
+            **config["affinity_cls_reg"],
+        )
+
         self.binding_site = BindingSitePredictor(
             **config["binding_site"],
         )
@@ -60,7 +64,7 @@ class AuxiliaryHeads(nn.Module):
 
         self.config = config
 
-    def forward(self, outputs, inter_mask, affinity_mask):
+    def forward(self, outputs, inter_mask, affinity_mask, ligand_mask):
         aux_out = {}
         lddt_logits = self.plddt(outputs["sm"]["single"])
         aux_out["lddt_logits"] = lddt_logits
@@ -75,9 +79,11 @@ class AuxiliaryHeads(nn.Module):
 
         aux_out["affinity_2d_logits"] = self.affinity_2d(outputs["pair"], aux_out["inter_contact_logits"], inter_mask)
 
-        aux_out["affinity_1d_logits"] = self.affinity_1d(outputs["single"])
+        aux_out["affinity_1d_logits"] = self.affinity_1d(outputs["single"], ligand_mask)
 
         aux_out["affinity_cls_logits"] = self.affinity_cls(outputs["single"], affinity_mask)
+
+        aux_out["affinity_cls_reg_logits"] = self.affinity_cls_reg(outputs["single"], affinity_mask)
 
         aux_out["binding_site_logits"] = self.binding_site(outputs["single"])
 
@@ -120,18 +126,14 @@ class Affinity1DPredictor(nn.Module):
         self.c_s = c_s
 
         self.linear1 = Linear(self.c_s, self.c_s, init="final")
+        self.out = Linear(self.c_s, num_bins, init="final")
 
-        self.linear2 = Linear(self.c_s, num_bins, init="final")
-
-    def forward(self, s):
+    def forward(self, s, ligand_mask):
         # [*, N, C_out]
-        s = self.linear1(s)
+        s = nn.functional.relu(self.linear1(s))
+        mean_of_ligand = (s * ligand_mask.unsqueeze(-1)).sum(dim=1) / ligand_mask.sum(dim=1).unsqueeze(-1)
 
-        # get an average over the sequence
-        s = torch.mean(s, dim=1)
-
-        logits = self.linear2(s)
-        return logits
+        return self.out(s)
 
 
 class AffinityClsTokenPredictor(nn.Module):
@@ -144,6 +146,22 @@ class AffinityClsTokenPredictor(nn.Module):
     def forward(self, s, affinity_mask):
         affinity_tokens = (s * affinity_mask.unsqueeze(-1)).sum(dim=1)
         return self.linear(affinity_tokens)
+
+
+class AffinityClsTokenPredictorRegression(nn.Module):
+    def __init__(self, c_s, **kwargs):
+        super(AffinityClsTokenPredictorRegression, self).__init__()
+
+        self.c_s = c_s
+        self.fc1 = nn.Linear(self.c_s, self.c_s)
+        self.fc2 = nn.Linear(self.c_s, self.c_s)
+        self.out = nn.Linear(self.c_s, 1)
+
+    def forward(self, s, affinity_mask):
+        affinity_tokens = (s * affinity_mask.unsqueeze(-1)).sum(dim=1)
+        x = nn.functional.relu(self.fc1(affinity_tokens))
+        x = nn.functional.relu(self.fc2(x))
+        return self.out(x)
 
 
 class BindingSitePredictor(nn.Module):

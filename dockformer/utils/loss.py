@@ -670,6 +670,25 @@ def affinity_loss(
     # print("after factor", after_factor.shape, after_factor, affinity_loss_factor.sum(), mean_val)
     return mean_val
 
+def affinity_loss_reg(
+    logits,
+    affinity,
+    affinity_loss_factor,
+    **kwargs,
+):
+    # apply mse loss
+    errors = torch.nn.functional.mse_loss(logits, affinity, reduction='none')
+
+    # print("errors dim", errors.shape, affinity_loss_factor.shape, errors)
+    after_factor = errors * affinity_loss_factor.squeeze()
+    if affinity_loss_factor.sum() > 0.1:
+        mean_val = after_factor.sum() / affinity_loss_factor.sum()
+    else:
+        # If no affinity in batch - get a very small loss. the factor also makes the loss small
+        mean_val = after_factor.sum() * 1e-3
+    # print("after factor", after_factor.shape, after_factor, affinity_loss_factor.sum(), mean_val)
+    return mean_val
+
 
 def positions_inter_distogram_loss(
     out,
@@ -1084,6 +1103,10 @@ class AlphaFoldLoss(nn.Module):
             "affinity_cls": lambda: affinity_loss(
                 logits=out["affinity_cls_logits"],
                 **{**batch, **self.config.affinity_cls},
+            ),
+            "affinity_cls_reg": lambda: affinity_loss_reg(
+                logits=out["affinity_cls_reg_logits"],
+                **{**batch, **self.config.affinity_cls_reg},
             ),
             "binding_site": lambda: binding_site_loss(
                 logits=out["binding_site_logits"],

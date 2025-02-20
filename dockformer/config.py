@@ -250,6 +250,9 @@ config = mlc.ConfigDict(
                     "c_s": c_s,
                     "num_bins": aux_affinity_bins,
                 },
+                "affinity_cls_reg": {
+                    "c_s": c_s,
+                },
                 "binding_site": {
                     "c_s": c_s,
                     "c_out": 1,
@@ -302,19 +305,22 @@ config = mlc.ConfigDict(
                 "min_bin": 0,
                 "max_bin": 15,
                 "no_bins": aux_affinity_bins,
-                "weight": 0.0,
+                "weight": 0.03,
             },
             "affinity1d": {
                 "min_bin": 0,
                 "max_bin": 15,
                 "no_bins": aux_affinity_bins,
-                "weight": 0.0,
+                "weight": 0.03,
             },
             "affinity_cls": {
                 "min_bin": 0,
                 "max_bin": 15,
                 "no_bins": aux_affinity_bins,
-                "weight": 0.0,
+                "weight": 0.03,
+            },
+            "affinity_cls_reg": {
+                "weight": 0.03,
             },
             "fape_backbone": {
                 "clamp_distance": 10.0,
