@@ -7,11 +7,13 @@ import Bio.PDB
 import Bio.SeqUtils
 import numpy as np
 import rdkit.Chem.rdMolAlign
+import torch
 from Bio import pairwise2
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolAlign
 from rdkit.Geometry import Point3D
 
+from dockformer.data.data_pipeline import get_psuedo_beta
 from run_pretrained_model import run_on_folder
 
 
@@ -24,8 +26,8 @@ SHOULD_SKIP_STRUCTURES = False
 # TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/202409_plinder/processed/affinity_screen_dataset_ic50/jsons"
 # OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/test_set_plinder/output_affinity_screen_ic50"
 
-# TEST_SET_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/CASF2016/CASF-2016/dockformer_jsons_dockformer_pocket"
-# OUTPUT_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/CASF2016/dockformer_predictions_20250121"
+TEST_SET_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/CASF2016/CASF-2016/dockformer_jsons_dockformer_pocket"
+OUTPUT_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/CASF2016/dockformer_predictions_20250121"
 #
 # TEST_SET_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/jsons"
 # OUTPUT_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/output"
@@ -33,8 +35,12 @@ SHOULD_SKIP_STRUCTURES = False
 # TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/202409_plinder/processed/plinder_jsons_test"
 # OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/test_set_plinder/output"
 
-TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset2/input_json_with_gt"
-OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset2/output"
+# TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset2/input_json_with_gt"
+# OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset2/output"
+
+# TEST_SET_PATH = "/Users/benshor/Documents/Data/202401_pred_affinity/local_tests/plinder_jsons_test"
+# OUTPUT_PATH = "/Users/benshor/Documents/Data/202401_pred_affinity/local_tests/test_outputs"
+
 
 def get_pdb_model(pdb_path: str):
     pdb_parser = Bio.PDB.PDBParser(QUIET=True)
@@ -328,6 +334,20 @@ def simple_get_rmsd(protein_path1: str, protein_path2: str):
     return super_imposer.rms
 
 
+def get_inter_contacts(pdb_path: str, sdf_path: str, threshold: float = 5.0):
+    ligand = Chem.MolFromMolFile(sdf_path)
+    ligand_positions = ligand.GetConformer(0).GetPositions()
+    ligand_positions = torch.tensor(np.array(ligand_positions)).float()
+
+    # prepare inter_contacts
+    expanded_prot_pos = get_psuedo_beta(pdb_path).unsqueeze(1)
+    expanded_lig_pos = ligand_positions.unsqueeze(0)  # Shape: (1, N_lig, 3)
+    distances = torch.sqrt(torch.sum((expanded_prot_pos - expanded_lig_pos) ** 2, dim=-1))
+    mask = distances < threshold
+    indices = mask.nonzero(as_tuple=False)  # shape (N, 2), where N is the number of True elements
+    return [(int(row), int(col)) for row, col in indices]
+
+
 def main(config_path, ckpt_path=None):
     use_relaxed = False
     use_reembed = False
@@ -372,6 +392,7 @@ def main(config_path, ckpt_path=None):
 
         affinity_output_path = os.path.join(output_dir, "predictions", f"{jobname}_predicted_affinity.json")
         pred_affinities = json.load(open(affinity_output_path, "r"))
+        pred_inter_contacts = [(i[0], i[1]) for i in pred_affinities.pop("inter_contacts", [])]
         all_rmsds[jobname] = {"gt_affinity": gt_affinity, **pred_affinities}
 
         if not SHOULD_SKIP_STRUCTURES:
@@ -394,6 +415,23 @@ def main(config_path, ckpt_path=None):
                 continue
 
             print(jobname)
+            gt_inter_contacts = get_inter_contacts(gt_protein_path, gt_ligand_path)
+
+            min_len = min(len(gt_inter_contacts), len(pred_inter_contacts))
+            precision = len([i for i in pred_inter_contacts[:len(gt_inter_contacts)]
+                             if i in gt_inter_contacts]) / min_len
+            recall = len([i for i in gt_inter_contacts
+                          if i in pred_inter_contacts[:len(gt_inter_contacts)]]) / min_len
+            try:
+                from sklearn.metrics import roc_auc_score
+                y_label = [1 if i in gt_inter_contacts else 0 for i in pred_inter_contacts]
+                y_score = list(range(len(pred_inter_contacts), 0, -1))
+                auc_score = roc_auc_score(y_label, y_score)
+                auc_score = auc_score if not np.isnan(auc_score) else 0
+            except ImportError:
+                print("Failed to import sklearn, skipping auc")
+                auc_score = None
+
             try:
                 if use_relaxed:
                     rmsds = get_rmsd(gt_protein_path, gt_ligand_path, relaxed_protein_path, relaxed_ligand_path,
@@ -420,11 +458,14 @@ def main(config_path, ckpt_path=None):
             all_rmsds[jobname] = {"ligand_rmsd": ligand_rmsd, "pocket_rmsd": pocket_rmsd, "protein_rmsd": protein_rmsd,
                                   "input_protein_to_pred_rmsd": input_protein_to_pred_rmsd,
                                   "input_protein_to_gt_rmsd": input_protein_to_gt_rmsd,
+                                  "inter_contacts_precision": precision, "inter_contacts_recall": recall,
+                                  "inter_contacts_auc": auc_score,
                                   **all_rmsds[jobname]
                                   }
     print(all_rmsds)
     print("real total", len(all_rmsds))
     ligand_rmsds = {k: v["ligand_rmsd"] for k, v in all_rmsds.items() if "ligand_rmsd" in v}
+    print("saved on", output_dir)
     print("Total: ", len(ligand_rmsds), "Under 2: ", sum(1 for rmsd in ligand_rmsds.values() if rmsd < 2),
           "Under 5: ", sum(1 for rmsd in ligand_rmsds.values() if rmsd < 5))
 
@@ -433,5 +474,5 @@ def main(config_path, ckpt_path=None):
 
 if __name__ == "__main__":
     config_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "run_config.json")
-    ckpt_path = sys.argv[2] if len(sys.argv) > 2 else None
-    main(config_path, ckpt_path)
+    arg_ckpt_path = sys.argv[2] if len(sys.argv) > 2 else None
+    main(config_path, arg_ckpt_path)

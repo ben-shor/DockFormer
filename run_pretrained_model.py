@@ -117,16 +117,26 @@ def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_re
         affinity_cls = torch.sum(torch.softmax(torch.tensor(out["affinity_cls_logits"]), -1) * torch.linspace(0, 15, 32),
                                 dim=-1).item()
 
-
         affinity_2d_max = torch.linspace(0, 15, 32)[torch.argmax(torch.tensor(out["affinity_2d_logits"]))].item()
         affinity_1d_max = torch.linspace(0, 15, 32)[torch.argmax(torch.tensor(out["affinity_1d_logits"]))].item()
         affinity_cls_max = torch.linspace(0, 15, 32)[torch.argmax(torch.tensor(out["affinity_cls_logits"]))].item()
+
+        protein_mask = processed_feature_dict["protein_mask"][0].astype(bool)
+        ligand_mask = processed_feature_dict["ligand_mask"][0].astype(bool)
+
+        protein_length = protein_mask.sum()
+        ligand_length = ligand_mask.sum()
+        predicted_inter_contacts_logits = torch.tensor(out["inter_contact_logits"][0][:protein_length,
+                                                       protein_length:protein_length+ligand_length, :])
+
+        top_100_inter_contacts = torch.topk(predicted_inter_contacts_logits.flatten(), 100).indices
+        inter_contacts_indices = [[int(i // ligand_length), int(i % ligand_length)] for i in top_100_inter_contacts]
 
         print("Affinity: ", affinity_2d, affinity_cls, affinity_1d)
         with open(affinity_output_path, "w") as f:
             json.dump({"affinity_2d": affinity_2d, "affinity_1d": affinity_1d, "affinity_cls": affinity_cls,
                        "affinity_2d_max": affinity_2d_max, "affinity_1d_max": affinity_1d_max,
-                       "affinity_cls_max": affinity_cls_max}, f)
+                       "affinity_cls_max": affinity_cls_max, "inter_contacts": inter_contacts_indices}, f)
 
         # binding_site = torch.sigmoid(torch.tensor(out["binding_site_logits"])) * 100
         # binding_site = binding_site[:processed_feature_dict["aatype"].shape[1]].flatten()
@@ -135,9 +145,6 @@ def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_re
         # binding_site = torch.max(predicted_contacts, dim=2).values.flatten()
 
         ligand_output_path = os.path.join(output_directory, f"{output_name}_ligand_{{i}}.sdf")
-
-        protein_mask = processed_feature_dict["protein_mask"][0].astype(bool)
-        ligand_mask = processed_feature_dict["ligand_mask"][0].astype(bool)
 
         save_output_structure(
             aatype=processed_feature_dict["aatype"][0][protein_mask],

@@ -101,6 +101,18 @@ def _apply_protein_probablistic_transforms(tensors: FeatureTensorDict, cfg: mlc.
     return tensors
 
 
+def get_psuedo_beta(pdb_path: str) -> torch.Tensor:
+    """Get pseudo beta positions for a protein."""
+    with open(pdb_path, 'r') as f:
+        pdb_str = f.read()
+    protein_object = protein.from_pdb_string(pdb_str)
+    pdb_feats = make_protein_features(protein_object, "")
+    tensor_feats = _np_filter_and_to_tensor_dict(pdb_feats, ["aatype", "all_atom_positions", "all_atom_mask"])
+    pdb_feats = _apply_protein_transforms(tensor_feats)
+
+    return pdb_feats["pseudo_beta"]
+
+
 class DataPipeline:
     """Assembles input features."""
     def __init__(self, config: mlc.ConfigDict, mode: str):

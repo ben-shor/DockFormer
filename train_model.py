@@ -297,7 +297,7 @@ class ModelWrapper(pl.LightningModule):
             learning_rate = self.config.globals.max_lr
 
         optimizer = torch.optim.Adam(
-            self.model.parameters(), 
+            self.model.parameters(),
             lr=learning_rate, 
             eps=eps
         )
