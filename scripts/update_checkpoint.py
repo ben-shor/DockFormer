@@ -19,26 +19,26 @@ def main(run_config_path: str):
     checkpoint = torch.load(ckpt_path, map_location='cpu')
 
     state_dict = checkpoint['state_dict']
-    old_keys = list(state_dict.keys())
-    for old_name in old_keys:
-        name = old_name
-        if "msa_" in old_name:
-            name = old_name.replace("msa_", "single_")
-            print(f"Renaming {old_name} to {name}")
-        state_dict[name] = state_dict.pop(old_name)
-
-        ema_old_name, ema_new_name = old_name[6:], name[6:]  # remove "model." prefix
-        checkpoint["ema"]["params"][ema_new_name] = checkpoint["ema"]["params"].pop(ema_old_name)
+    # old_keys = list(state_dict.keys())
+    # for old_name in old_keys:
+    #     name = old_name
+    #     if "msa_" in old_name:
+    #         name = old_name.replace("msa_", "single_")
+    #         print(f"Renaming {old_name} to {name}")
+    #     state_dict[name] = state_dict.pop(old_name)
+    #
+    #     ema_old_name, ema_new_name = old_name[6:], name[6:]  # remove "model." prefix
+    #     checkpoint["ema"]["params"][ema_new_name] = checkpoint["ema"]["params"].pop(ema_old_name)
 
     # # Load the modified state dictionary into the model
-    # config = model_config(run_config["stage"])
-    # config = override_config(config, run_config.get("override_conf", {}))
-    # model = AlphaFold(config)
-    # model.load_state_dict(state_dict, strict=False)
-    #
+    config = model_config(run_config["stage"])
+    config = override_config(config, run_config.get("override_conf", {}))
+    model = AlphaFold(config)
+    model.load_state_dict(state_dict, strict=False)
+
     # # If needed, re-save the checkpoint with the new names
-    # torch.save({'state_dict': model.state_dict()}, updated_ckpt_path)
-    torch.save(checkpoint, updated_ckpt_path)
+    torch.save({'state_dict': model.state_dict()}, updated_ckpt_path)
+    # torch.save(checkpoint, updated_ckpt_path)
 
     print("Updated checkpoint saved to", updated_ckpt_path)
 
