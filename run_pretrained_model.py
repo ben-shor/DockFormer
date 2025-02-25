@@ -116,6 +116,7 @@ def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_re
                                 dim=-1).item()
         affinity_cls = torch.sum(torch.softmax(torch.tensor(out["affinity_cls_logits"]), -1) * torch.linspace(0, 15, 32),
                                 dim=-1).item()
+        affinity_cls_reg = torch.tensor(out["affinity_cls_reg_logits"]).item()
 
         affinity_2d_max = torch.linspace(0, 15, 32)[torch.argmax(torch.tensor(out["affinity_2d_logits"]))].item()
         affinity_1d_max = torch.linspace(0, 15, 32)[torch.argmax(torch.tensor(out["affinity_1d_logits"]))].item()
@@ -136,7 +137,8 @@ def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_re
         with open(affinity_output_path, "w") as f:
             json.dump({"affinity_2d": affinity_2d, "affinity_1d": affinity_1d, "affinity_cls": affinity_cls,
                        "affinity_2d_max": affinity_2d_max, "affinity_1d_max": affinity_1d_max,
-                       "affinity_cls_max": affinity_cls_max, "inter_contacts": inter_contacts_indices}, f)
+                       "affinity_cls_max": affinity_cls_max, "affinity_cls_reg": affinity_cls_reg,
+                       "inter_contacts": inter_contacts_indices}, f)
 
         # binding_site = torch.sigmoid(torch.tensor(out["binding_site_logits"])) * 100
         # binding_site = binding_site[:processed_feature_dict["aatype"].shape[1]].flatten()
