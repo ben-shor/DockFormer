@@ -10,7 +10,7 @@ import rdkit.Chem.rdMolAlign
 import torch
 from Bio import pairwise2
 from rdkit import Chem
-from rdkit.Chem import AllChem, rdMolAlign
+from rdkit.Chem import AllChem, rdMolAlign, rdFMCS
 from rdkit.Geometry import Point3D
 
 from dockformer.data.data_pipeline import get_psuedo_beta
@@ -26,18 +26,25 @@ SHOULD_SKIP_STRUCTURES = False
 # TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/202409_plinder/processed/affinity_screen_dataset_ic50/jsons"
 # OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/test_set_plinder/output_affinity_screen_ic50"
 
-TEST_SET_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/CASF2016/CASF-2016/dockformer_jsons_dockformer_pocket"
-OUTPUT_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/CASF2016/dockformer_predictions_20250121"
-#
+# TEST_SET_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/CASF2016/CASF-2016/dockformer_jsons_dockformer_pocket"
+# OUTPUT_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/CASF2016/dockformer_predictions_20250121"
+
 # TEST_SET_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/jsons"
 # TEST_SET_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/diverse_jsons"
 # OUTPUT_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/output"
+
+# TEST_SET_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/jsons_only_aff"
+# OUTPUT_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/output_only_aff"
+# SHOULD_SKIP_STRUCTURES = True
 
 # TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/202409_plinder/processed/plinder_jsons_test"
 # OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/test_set_plinder/output"
 
 # TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset2/input_json_with_gt"
 # OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset2/output"
+
+TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset3/jsons_no_big"
+OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset3/output"
 
 # TEST_SET_PATH = "/Users/benshor/Documents/Data/202401_pred_affinity/local_tests/plinder_jsons_test"
 # OUTPUT_PATH = "/Users/benshor/Documents/Data/202401_pred_affinity/local_tests/test_outputs"
@@ -133,6 +140,53 @@ def get_matching_residues(gt_chain, pred_chain):
     return matching_pairs
 
 
+def calculate_ligand_rmsd_with_fallback(pred_ligand, gt_ligand, conf_id=0):
+    # return the ligand_rmsd, and the percentage of matching atoms
+    try:
+        ligand_rmsd = rdkit.Chem.rdMolAlign.CalcRMS(pred_ligand, gt_ligand, prbId=conf_id)
+        return ligand_rmsd, None
+    except Exception as e:
+        print(f"Standard RMSD calculation failed: {str(e)}")
+        print("Falling back to MCS-based RMSD calculation")
+
+        # Use MCS to find matching atoms between the molecules
+        mcs_result = rdFMCS.FindMCS([pred_ligand, gt_ligand])
+        assert not mcs_result.canceled, "MCS search canceled, Error!!!! Can't map ref ligand to gt ligand"
+        assert mcs_result.numAtoms > 0, "MCS search found no common substructure"
+
+        mcs_mol = rdkit.Chem.MolFromSmarts(mcs_result.smartsString)
+        pred_match = pred_ligand.GetSubstructMatch(mcs_mol)
+        gt_match = gt_ligand.GetSubstructMatch(mcs_mol)
+
+        assert pred_match and gt_match, "Failed to find MCS matches in molecules"
+
+        pred_to_gt_atom = {pred_idx: gt_idx for pred_idx, gt_idx in zip(pred_match, gt_match)}
+
+        pred_original_positions = [pred_ligand.GetConformer(conf_id).GetAtomPosition(i) for i in pred_match]
+        gt_original_positions = [gt_ligand.GetConformer().GetAtomPosition(i) for i in gt_match]
+
+        pred_coords = []
+        gt_coords = []
+
+        for pred_idx, gt_idx in pred_to_gt_atom.items():
+            pred_pos = pred_original_positions[pred_idx]
+            gt_pos = gt_original_positions[gt_idx]
+
+            pred_coords.append((pred_pos.x, pred_pos.y, pred_pos.z))
+            gt_coords.append((gt_pos.x, gt_pos.y, gt_pos.z))
+
+        # Convert to numpy arrays for RMSD calculation
+        pred_coords = np.array(pred_coords)
+        gt_coords = np.array(gt_coords)
+
+        # Calculate RMSD manually
+        squared_diff = np.sum((pred_coords - gt_coords) ** 2, axis=1)
+        mcs_rmsd = np.sqrt(np.mean(squared_diff))
+
+        print(f"MCS-based RMSD calculated using {len(pred_match)}/{len(pred_ligand.GetAtoms())} matching atoms")
+        return mcs_rmsd, len(pred_match) / len(pred_ligand.GetAtoms())
+
+
 def get_rmsd(gt_protein_path: str, gt_ligand_path: str, pred_protein_path: str, pred_ligand_path:str,
              reembed_smiles: Optional[str] = None, save_aligned: bool = False):
 
@@ -173,7 +227,7 @@ def get_rmsd(gt_protein_path: str, gt_ligand_path: str, pred_protein_path: str, 
     gt_ligand = Chem.SDMolSupplier(gt_ligand_path)[0]
     gt_ligand_atoms = [gt_ligand.GetConformer().GetAtomPosition(i) for i in range(gt_ligand.GetNumAtoms())]
 
-    protein_ca_coords = np.array([i["CA"].get_coord() for i in gt_protein_ca])  # Shape: (n_protein, 3)
+    protein_ca_coords = np.array([i["CA"].get_coord() for i in gt_protein_ca if "CA" in i])  # Shape: (n_protein, 3)
     ligand_atom_coords = np.array(gt_ligand_atoms)  # Shape: (n_ligand, 3)
 
     assert len(ref_atoms) == len(sample_atoms), f"Different number of CA atoms in proteins {len(ref_atoms)} {len(sample_atoms)}"
@@ -249,9 +303,9 @@ def get_rmsd(gt_protein_path: str, gt_ligand_path: str, pred_protein_path: str, 
         pos = pred_ligand_conf.GetAtomPosition(i)
         new_pos = np.dot(pos, super_imposer.rotran[0]) + super_imposer.rotran[1]
         pred_ligand_conf.SetAtomPosition(i, Point3D(float(new_pos[0]), float(new_pos[1]), float(new_pos[2])))
-    # get the RMSD
-    ligand_rmsd = rdkit.Chem.rdMolAlign.CalcRMS(pred_ligand, gt_ligand, prbId=conf_id)
 
+    # get the RMSD
+    ligand_rmsd, matching_atoms_ratio = calculate_ligand_rmsd_with_fallback(pred_ligand, gt_ligand, conf_id)
 
     # check if there are alternative pockets
     original_pocket_res_ids = [k for k in gt_pocket_res_ids if k[0] == pocket_most_common_chain]
@@ -312,7 +366,7 @@ def get_rmsd(gt_protein_path: str, gt_ligand_path: str, pred_protein_path: str, 
         aligned_ligand_path = pred_ligand_path + "_aligned.sdf"
         Chem.MolToMolFile(pred_ligand, aligned_ligand_path, confId=conf_id)
 
-    return ligand_rmsd, pocket_rmsd, protein_rmsd
+    return ligand_rmsd, pocket_rmsd, protein_rmsd, matching_atoms_ratio
 
 
 def simple_get_rmsd(protein_path1: str, protein_path2: str):
@@ -451,7 +505,7 @@ def main(config_path, ckpt_path=None):
                 # raise e
                 continue
 
-            ligand_rmsd, pocket_rmsd, protein_rmsd = rmsds
+            ligand_rmsd, pocket_rmsd, protein_rmsd, matching_ligand_atoms = rmsds
             try:
                 input_protein_to_pred_rmsd = simple_get_rmsd(input_pdb_path, pred_protein_path)
                 input_protein_to_gt_rmsd = simple_get_rmsd(input_pdb_path, gt_protein_path)
@@ -463,7 +517,7 @@ def main(config_path, ckpt_path=None):
                                   "input_protein_to_pred_rmsd": input_protein_to_pred_rmsd,
                                   "input_protein_to_gt_rmsd": input_protein_to_gt_rmsd,
                                   "inter_contacts_precision": precision, "inter_contacts_recall": recall,
-                                  "inter_contacts_auc": auc_score,
+                                  "inter_contacts_auc": auc_score, "matching_ligand_atoms": matching_atoms_ratio,
                                   **all_rmsds[jobname]
                                   }
     print(all_rmsds)
