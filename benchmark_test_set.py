@@ -538,4 +538,8 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"Unknown dataset name: {dataset_name}")
 
+    if dataset_name != "basic_local":
+        name = f"{dataset_name}_{os.path.basename(config_path).split('.')[0]}"
+        output_folder = f"/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/benchmark_outputs/{name}"
+
     main(config_path, jsons_path, output_folder, ckpt_path=arg_ckpt_path, should_skip_structures=should_skip_structures)
