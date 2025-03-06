@@ -529,7 +529,7 @@ if __name__ == "__main__":
     elif dataset_name == "posebusters3":
         jsons_path = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset3/jsons_no_big"
         output_folder = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset3/output"
-        elif dataset_name == "posebusters3_big":
+    elif dataset_name == "posebusters3_big":
         jsons_path = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset3/jsons_no_big"
         output_folder = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset3/output"
     else:
