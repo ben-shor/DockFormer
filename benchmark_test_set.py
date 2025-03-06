@@ -129,8 +129,10 @@ def calculate_ligand_rmsd_with_fallback(pred_ligand, gt_ligand, conf_id=0):
 
         pred_to_gt_atom = {pred_idx: gt_idx for pred_idx, gt_idx in zip(pred_match, gt_match)}
 
-        pred_original_positions = [pred_ligand.GetConformer(conf_id).GetAtomPosition(i) for i in pred_match]
-        gt_original_positions = [gt_ligand.GetConformer().GetAtomPosition(i) for i in gt_match]
+        pred_ligand_conformer = pred_ligand.GetConformer(conf_id)
+        pred_original_positions = [pred_ligand_conformer.GetAtomPosition(i) for i in range(pred_ligand.GetNumAtoms())]
+        gt_ligand_conformer = gt_ligand.GetConformer()
+        gt_original_positions = [gt_ligand_conformer.GetAtomPosition(i) for i in range(gt_ligand.GetNumAtoms())]
 
         pred_coords = []
         gt_coords = []
@@ -383,6 +385,7 @@ def main(config_path, jsons_path, base_output_folder, ckpt_path=None, should_ski
     os.makedirs(output_dir, exist_ok=True)
 
     run_on_folder(jsons_path, output_dir, config_path, long_sequence_inference=True, ckpt_path=ckpt_path)
+    # output_dir = os.path.join(base_output_folder, f"output__manual")
     # output_dir = os.path.join(base_output_folder, f"output_0")
 
     if not use_relaxed:
@@ -464,7 +467,7 @@ def main(config_path, jsons_path, base_output_folder, ckpt_path=None, should_ski
                                      reembed_smiles=smiles, save_aligned=save_aligned)
             except Exception as e:
                 print(f"Failed to compute RMSD for {jobname}", e)
-                # raise e
+                raise e
                 continue
 
             ligand_rmsd, pocket_rmsd, protein_rmsd, matching_ligand_atoms = rmsds
@@ -501,7 +504,7 @@ if __name__ == "__main__":
 
     should_skip_structures = False
     if dataset_name == "basic_local":
-        jsons_path = "/Users/benshor/Documents/Data/202401_pred_affinity/local_tests/plinder_jsons_test"
+        jsons_path = "/Users/benshor/Documents/Data/202401_pred_affinity/local_tests/input_manual"
         output_folder = "/Users/benshor/Documents/Data/202401_pred_affinity/local_tests/test_outputs"
     elif dataset_name == "casf2016":
         jsons_path = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/CASF2016/CASF-2016/dockformer_jsons_dockformer_pocket"
