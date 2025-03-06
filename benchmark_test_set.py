@@ -17,39 +17,6 @@ from dockformer.data.data_pipeline import get_psuedo_beta
 from run_pretrained_model import run_on_folder
 
 
-SHOULD_SKIP_STRUCTURES = False
-
-# TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/202409_plinder/processed/plinder_jsons_test_small"
-# TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/202409_plinder/processed/plinder_jsons_train_small_for_test"
-# OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/test_set_plinder/output"
-#
-# TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/202409_plinder/processed/affinity_screen_dataset_ic50/jsons"
-# OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/test_set_plinder/output_affinity_screen_ic50"
-
-# TEST_SET_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/CASF2016/CASF-2016/dockformer_jsons_dockformer_pocket"
-# OUTPUT_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/CASF2016/dockformer_predictions_20250121"
-
-# TEST_SET_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/jsons"
-# TEST_SET_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/diverse_jsons"
-# OUTPUT_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/output"
-
-# TEST_SET_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/jsons_only_aff"
-# OUTPUT_PATH = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/output_only_aff"
-# SHOULD_SKIP_STRUCTURES = True
-
-# TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/202409_plinder/processed/plinder_jsons_test"
-# OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/test_set_plinder/output"
-
-# TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset2/input_json_with_gt"
-# OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset2/output"
-
-TEST_SET_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset3/jsons_no_big"
-OUTPUT_PATH = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset3/output"
-
-# TEST_SET_PATH = "/Users/benshor/Documents/Data/202401_pred_affinity/local_tests/plinder_jsons_test"
-# OUTPUT_PATH = "/Users/benshor/Documents/Data/202401_pred_affinity/local_tests/test_outputs"
-
-
 def get_pdb_model(pdb_path: str):
     pdb_parser = Bio.PDB.PDBParser(QUIET=True)
     pdb_struct = pdb_parser.get_structure("original_pdb", pdb_path)
@@ -403,25 +370,20 @@ def get_inter_contacts(pdb_path: str, sdf_path: str, threshold: float = 5.0):
     return [(int(row), int(col)) for row, col in indices]
 
 
-def main(config_path, ckpt_path=None):
+def main(config_path, jsons_path, base_output_folder, ckpt_path=None, should_skip_structures=False):
     use_relaxed = False
     use_reembed = False
     save_aligned = False
     assert not (use_relaxed and use_reembed), "Can't use both relaxed and reembed"
 
     i = 0
-    while os.path.exists(os.path.join(OUTPUT_PATH, f"output_{i}")):
+    while os.path.exists(os.path.join(base_output_folder, f"output_{i}")):
         i += 1
-    output_dir = os.path.join(OUTPUT_PATH, f"output_{i}")
+    output_dir = os.path.join(base_output_folder, f"output_{i}")
     os.makedirs(output_dir, exist_ok=True)
 
-    run_on_folder(TEST_SET_PATH, output_dir, config_path, long_sequence_inference=True, ckpt_path=ckpt_path)
-    # output_dir = os.path.join(OUTPUT_PATH, f"output_0")
-    # output_dir = os.path.join(POSEBUSTERS_OUTPUT, f"output_10_run61")
-    # output_dir = os.path.join(POSEBUSTERS_OUTPUT, f"output_18_run85_67K")
-    # output_dir = os.path.join(POSEBUSTERS_OUTPUT, f"output_18_run85_67K")
-    # output_dir = os.path.join(POSEBUSTERS_OUTPUT, f"output_22_run87_93K")
-    # output_dir = os.path.join(POSEBUSTERS_OUTPUT, f"output_23_run86_260K")
+    run_on_folder(jsons_path, output_dir, config_path, long_sequence_inference=True, ckpt_path=ckpt_path)
+    # output_dir = os.path.join(base_output_folder, f"output_0")
 
     if not use_relaxed:
         jobnames = ["_".join(filename.split("_")[:-2])
@@ -439,9 +401,9 @@ def main(config_path, ckpt_path=None):
 
     all_rmsds = {}
     for jobname in sorted(jobnames):
-        input_json = os.path.join(TEST_SET_PATH, f"{jobname}.json")
+        input_json = os.path.join(jsons_path, f"{jobname}.json")
         input_data = json.load(open(input_json, "r"))
-        parent_dir = os.path.dirname(TEST_SET_PATH)
+        parent_dir = os.path.dirname(jsons_path)
 
         gt_affinity = input_data["affinity"]
 
@@ -450,7 +412,7 @@ def main(config_path, ckpt_path=None):
         pred_inter_contacts = [(i[0], i[1]) for i in pred_affinities.pop("inter_contacts", [])]
         all_rmsds[jobname] = {"gt_affinity": gt_affinity, **pred_affinities}
 
-        if not SHOULD_SKIP_STRUCTURES:
+        if not should_skip_structures:
             gt_protein_path = os.path.join(parent_dir, input_data["gt_structure"])
             # assert len(input_data["ref_sdf_list"]) == 1, "Multiple ligands not supported"
             if len(input_data["ref_sdf_list"]) > 1:
@@ -517,12 +479,14 @@ def main(config_path, ckpt_path=None):
                                   "input_protein_to_pred_rmsd": input_protein_to_pred_rmsd,
                                   "input_protein_to_gt_rmsd": input_protein_to_gt_rmsd,
                                   "inter_contacts_precision": precision, "inter_contacts_recall": recall,
-                                  "inter_contacts_auc": auc_score, "matching_ligand_atoms": matching_atoms_ratio,
+                                  "inter_contacts_auc": auc_score, "matching_ligand_atoms": matching_ligand_atoms,
                                   **all_rmsds[jobname]
                                   }
     print(all_rmsds)
     print("real total", len(all_rmsds))
     ligand_rmsds = {k: v["ligand_rmsd"] for k, v in all_rmsds.items() if "ligand_rmsd" in v}
+    missing_keys = [k for k in all_rmsds.keys() if k not in ligand_rmsds]
+    print("Missing ligand_rmsd for:", missing_keys)
     print("saved on", output_dir)
     print("Total: ", len(ligand_rmsds), "Under 2: ", sum(1 for rmsd in ligand_rmsds.values() if rmsd < 2),
           "Under 5: ", sum(1 for rmsd in ligand_rmsds.values() if rmsd < 5))
@@ -532,5 +496,43 @@ def main(config_path, ckpt_path=None):
 
 if __name__ == "__main__":
     config_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "run_config.json")
-    arg_ckpt_path = sys.argv[2] if len(sys.argv) > 2 else None
-    main(config_path, arg_ckpt_path)
+    dataset_name = sys.argv[2] if len(sys.argv) > 2 else "basic_local"
+    arg_ckpt_path = sys.argv[3] if len(sys.argv) > 3 else None
+
+    should_skip_structures = False
+    if dataset_name == "basic_local":
+        jsons_path = "/Users/benshor/Documents/Data/202401_pred_affinity/local_tests/plinder_jsons_test"
+        output_folder = "/Users/benshor/Documents/Data/202401_pred_affinity/local_tests/test_outputs"
+    elif dataset_name == "casf2016":
+        jsons_path = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/CASF2016/CASF-2016/dockformer_jsons_dockformer_pocket"
+        output_folder = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/CASF2016/dockformer_predictions_20250121"
+    elif dataset_name == "casp_test":
+        jsons_path = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/jsons"
+        output_folder = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/output"
+    elif dataset_name == "casp_test_diverse":
+        jsons_path = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/diverse_jsons"
+        output_folder = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/output"
+    elif dataset_name == "casp_test_only_aff":
+        jsons_path = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/jsons_only_aff"
+        output_folder = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/output_only_aff"
+        should_skip_structures = True
+    elif dataset_name == "casp_test_aff":
+        jsons_path = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/jsons_aff_dataset"
+        output_folder = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/output_aff"
+        should_skip_structures = True
+    elif dataset_name == "plinder_test":
+        jsons_path = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/202409_plinder/processed/plinder_jsons_test"
+        output_folder = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/test_set_plinder/output"
+    elif dataset_name == "posebusters2":
+        jsons_path = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset2/input_json_with_gt"
+        output_folder = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset2/output"
+    elif dataset_name == "posebusters3":
+        jsons_path = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset3/jsons_no_big"
+        output_folder = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset3/output"
+        elif dataset_name == "posebusters3_big":
+        jsons_path = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset3/jsons_no_big"
+        output_folder = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset3/output"
+    else:
+        raise ValueError(f"Unknown dataset name: {dataset_name}")
+
+    main(config_path, jsons_path, output_folder, ckpt_path=arg_ckpt_path, should_skip_structures=should_skip_structures)
