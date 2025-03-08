@@ -426,7 +426,7 @@ def main(config_path, jsons_path, base_output_folder, ckpt_path=None, should_ski
             largest_ligand_index = 0
             if len(input_data["ref_sdf_list"]) > 1:
                 largest_ligand_index = max(range(len(input_data["gt_sdf_list"])),
-                                           key=lambda x: get_num_atoms(os.path.join(parent_dir, input_data["gt_sdf_list"][i])))
+                                           key=lambda x: get_num_atoms(os.path.join(parent_dir, input_data["gt_sdf_list"][x])))
                 print("**** Multiple ligands not supported, taking largest", jobname, largest_ligand_index)
 
             gt_ligand_path = os.path.join(parent_dir, input_data["gt_sdf_list"][largest_ligand_index])
@@ -541,7 +541,7 @@ if __name__ == "__main__":
         jsons_path = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset3/jsons_no_big"
         output_folder = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset3/output"
     elif dataset_name == "posebusters3_big":
-        jsons_path = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset3/jsons_no_big"
+        jsons_path = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset3/jsons_big"
         output_folder = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset3/output"
     else:
         raise ValueError(f"Unknown dataset name: {dataset_name}")
