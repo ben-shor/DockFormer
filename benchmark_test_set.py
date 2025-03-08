@@ -372,6 +372,11 @@ def get_inter_contacts(pdb_path: str, sdf_path: str, threshold: float = 5.0):
     return [(int(row), int(col)) for row, col in indices]
 
 
+def get_num_atoms(sdf_path: str):
+    ligand = Chem.MolFromMolFile(sdf_path)
+    return ligand.GetNumAtoms()
+
+
 def main(config_path, jsons_path, base_output_folder, ckpt_path=None, should_skip_structures=False):
     use_relaxed = False
     use_reembed = False
@@ -418,12 +423,15 @@ def main(config_path, jsons_path, base_output_folder, ckpt_path=None, should_ski
         if not should_skip_structures:
             gt_protein_path = os.path.join(parent_dir, input_data["gt_structure"])
             # assert len(input_data["ref_sdf_list"]) == 1, "Multiple ligands not supported"
+            largest_ligand_index = 0
             if len(input_data["ref_sdf_list"]) > 1:
-                print("**** Multiple ligands not supported, taking first", jobname)
+                largest_ligand_index = max(range(len(input_data["gt_sdf_list"])),
+                                           key=lambda x: get_num_atoms(os.path.join(parent_dir, input_data["gt_sdf_list"][i])))
+                print("**** Multiple ligands not supported, taking largest", jobname, largest_ligand_index)
 
-            gt_ligand_path = os.path.join(parent_dir, input_data["gt_sdf_list"][0])
+            gt_ligand_path = os.path.join(parent_dir, input_data["gt_sdf_list"][largest_ligand_index])
             pred_protein_path = os.path.join(output_dir, "predictions", f"{jobname}_predicted_protein.pdb")
-            pred_ligand_path = os.path.join(output_dir, "predictions", f"{jobname}_predicted_ligand_0.sdf")
+            pred_ligand_path = os.path.join(output_dir, "predictions", f"{jobname}_predicted_ligand_{largest_ligand_index}.sdf")
 
             relaxed_protein_path = os.path.join(output_dir, "predictions", f"{jobname}_protein_relaxed.pdb")
             relaxed_ligand_path = os.path.join(output_dir, "predictions", f"{jobname}_ligand_relaxed.sdf")
@@ -462,7 +470,7 @@ def main(config_path, jsons_path, base_output_folder, ckpt_path=None, should_ski
                 else:
                     smiles = None
                     if use_reembed:
-                        smiles = input_data["input_smiles_list"][0]
+                        smiles = input_data["input_smiles_list"][largest_ligand_index]
                     rmsds = get_rmsd(gt_protein_path, gt_ligand_path, pred_protein_path, pred_ligand_path,
                                      reembed_smiles=smiles, save_aligned=save_aligned)
             except Exception as e:
