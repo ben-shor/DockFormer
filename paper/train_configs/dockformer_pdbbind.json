@@ -1,0 +1,34 @@
+{
+    "stage": "initial_training",
+    "wandb_project_name": "DockFormer",
+    "train_output_dir": "data/train_runs/dockformer_pdbbind",
+    "train_input_file": "data/datasets/pdbbind/train_data_no_casf.json",
+    "val_input_file": "data/datasets/pdbbind/val_data.json",
+    "check_val_every_n_epoch": 1,
+    "train_epoch_len": 16000,
+    "accumulate_grad_batches": 1,
+    "multi_node" : {"num_nodes": 1, "devices": 4},
+    "override_conf": {
+      "model": {
+        "evoformer_stack": {
+          "no_blocks": 8
+        }
+      },
+
+      "data": {
+        "common": {"max_recycling_iters": 3},
+        "data_module": {"data_loaders": {"batch_size": 4}},
+        "train": {"crop_size": 352, "fixed_size": true}
+      },
+      "loss": {
+        "positions_intra_distogram": {"weight": 0.01},
+        "inter_contact": {"weight": 0.05, "pos_class_weight": 10.0},
+        "binding_site": {"weight": 0.05},
+        "affinity1d": {"weight": 0.03},
+        "affinity2d": {"weight": 0.03},
+        "affinity_cls": {"weight": 0.03},
+        "fape_interface": {"weight": 1.0}
+      },
+      "globals": {"max_lr": 0.0002}
+    }
+}

@@ -212,37 +212,40 @@ class DataPipeline:
                 raise ValueError(f"Unknown key in sdf list features {k}")
         return joined_ligand_feats
 
+    @staticmethod
+    def _get_gt_positions(ref_ligand_path: str, gt_ligand_path: str):
+        ref_ligand = Chem.MolFromMolFile(ref_ligand_path)
+        gt_ligand = Chem.MolFromMolFile(gt_ligand_path)
+        gt_original_positions = gt_ligand.GetConformer(0).GetPositions()
+        gt_positions = [gt_original_positions[idx] for idx in gt_ligand.GetSubstructMatch(ref_ligand)]
+
+        if len(gt_positions) == 0:
+            from rdkit.Chem import rdFMCS
+            mcs_result = rdFMCS.FindMCS([ref_ligand, gt_ligand])
+            if mcs_result.canceled:
+                print("MCS search canceled, Error!!!! Can't map ref ligand to gt ligand")
+                gt_positions = gt_original_positions
+            else:
+                mcs_mol = Chem.MolFromSmarts(mcs_result.smartsString)
+                ref_match = ref_ligand.GetSubstructMatch(mcs_mol)
+                gt_match = gt_ligand.GetSubstructMatch(mcs_mol)
+                ref_to_gt_atom = {ref_idx: gt_idx for ref_idx, gt_idx in zip(ref_match, gt_match)}
+                gt_positions = [gt_original_positions[ref_to_gt_atom[i]] for i in sorted(list(ref_to_gt_atom.keys()))]
+
+        return gt_positions
+
     def get_matching_positions_list(self, ref_path_list: List[str], gt_path_list: List[str]):
         joined_gt_positions = []
 
         for ref_ligand_path, gt_ligand_path in zip(ref_path_list, gt_path_list):
-            ref_ligand = Chem.MolFromMolFile(ref_ligand_path)
-            gt_ligand = Chem.MolFromMolFile(gt_ligand_path)
-
-            gt_original_positions = gt_ligand.GetConformer(0).GetPositions()
-
-            gt_positions = [gt_original_positions[idx] for idx in gt_ligand.GetSubstructMatch(ref_ligand)]
+            gt_positions = self.get_matching_positions(ref_ligand_path, gt_ligand_path)
 
             joined_gt_positions.extend(gt_positions)
 
         return torch.tensor(np.array(joined_gt_positions)).float()
 
     def get_matching_positions(self, ref_ligand_path: str, gt_ligand_path: str):
-        ref_ligand = Chem.MolFromMolFile(ref_ligand_path)
-        gt_ligand = Chem.MolFromMolFile(gt_ligand_path)
-
-        gt_original_positions = gt_ligand.GetConformer(0).GetPositions()
-
-        gt_positions = [gt_original_positions[idx] for idx in gt_ligand.GetSubstructMatch(ref_ligand)]
-
-        # ref_positions = ref_ligand.GetConformer(0).GetPositions()
-        # for i in range(len(ref_positions)):
-        #     for j in range(i + 1, len(ref_positions)):
-        #         dist_ref = np.linalg.norm(ref_positions[i] - ref_positions[j])
-        #         dist_gt = np.linalg.norm(gt_positions[i] - gt_positions[j])
-        #         dist_gt = np.linalg.norm(gt_original_positions[i] - gt_original_positions[j])
-        #         if abs(dist_ref - dist_gt) > 1.0:
-        #             print(f"Distance mismatch {i} {j} {dist_ref} {dist_gt}")
+        gt_positions = self._get_gt_positions(ref_ligand_path, gt_ligand_path)
 
         return torch.tensor(np.array(gt_positions)) .float()
 

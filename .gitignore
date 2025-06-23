@@ -10,3 +10,4 @@ dockformer/resources/
 !dockformer/resources/stereo_chemical_props.txt
 tests/test_data/
 cutlass/
+/data/

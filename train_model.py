@@ -56,7 +56,6 @@ class ModelWrapper(pl.LightningModule):
     def _log(self, loss_breakdown, batch, outputs, train=True):
         phase = "train" if train else "val"
         for loss_name, indiv_loss in loss_breakdown.items():
-            # print("logging loss", loss_name, indiv_loss, flush=True)
             self.log(
                 f"{phase}/{loss_name}", 
                 indiv_loss, 
@@ -74,7 +73,6 @@ class ModelWrapper(pl.LightningModule):
                     on_step=False, on_epoch=True, logger=True, sync_dist=True
                 )
 
-        # print("logging validation metrics", flush=True)
         with torch.no_grad():
             other_metrics = self._compute_validation_metrics(
                 batch, 
@@ -83,7 +81,6 @@ class ModelWrapper(pl.LightningModule):
             )
 
         for k, v in other_metrics.items():
-            # print("logging metric", k, v, flush=True)
             if train:
                 agg_name = f"{phase}/{k}_agg"
                 if agg_name not in self.aggregated_metrics:
@@ -105,16 +102,12 @@ class ModelWrapper(pl.LightningModule):
         if self.ema.device != batch["aatype"].device:
             self.ema.to(batch["aatype"].device)
 
-        # ground_truth = batch.pop('gt_features', None)
-
         # Run the model
-        # print("running model", round(time.time() % 10000, 3), flush=True)
         outputs = self(batch)
 
         # Remove the recycling dimension
         batch = tensor_tree_map(lambda t: t[..., -1], batch)
 
-        # print("running loss", round(time.time() % 10000, 3), flush=True)
         # Compute loss
         loss, loss_breakdown = self.loss(
             outputs, batch, _return_breakdown=True
@@ -122,8 +115,6 @@ class ModelWrapper(pl.LightningModule):
 
         # Log it
         self._log(loss_breakdown, batch, outputs)
-        # print("loss done", round(time.time() % 10000, 3), flush=True)
-
 
         return loss
 
@@ -217,30 +208,24 @@ class ModelWrapper(pl.LightningModule):
 
         metrics["drmsd_intra_ligand"] = drmsd_intra_ligand_score
 
-        # --- inter contacts
+        # inter contacts recall & precision metrics
         gt_contacts = batch["gt_inter_contacts"]
         pred_contacts = torch.sigmoid(outputs["inter_contact_logits"].clone().detach()).squeeze(-1)
         pred_contacts = (pred_contacts > 0.5).float()
         pred_contacts = pred_contacts * batch["inter_pair_mask"]
 
-
-        # Calculate True Positives, False Positives, and False Negatives
         tp = torch.sum((gt_contacts == 1) & (pred_contacts == 1))
         fp = torch.sum((gt_contacts == 0) & (pred_contacts == 1))
         fn = torch.sum((gt_contacts == 1) & (pred_contacts == 0))
 
-        # Calculate Recall and Precision
         recall = tp / (tp + fn) if (tp + fn) > 0 else tp.float()
         precision = tp / (tp + fp) if (tp + fp) > 0 else tp.float()
 
         metrics["inter_contacts_recall"] = recall.clone().detach()
         metrics["inter_contacts_precision"] = precision.clone().detach()
 
-        # print("inter_contacts recall", recall, "precision", precision, tp, fp, fn, torch.ones_like(gt_contacts).sum())
-
-        # --- Affinity
+        # Affinity loss metrics
         if True or batch["affinity_loss_factor"].sum() > 0.1:
-            # print("affinity loss factor", batch["affinity_loss_factor"].sum())
             gt_affinity = batch["affinity"].squeeze(-1)
             affinity_linspace = torch.linspace(0, 15, 32, device=batch["affinity"].device)
             pred_affinity_1d = torch.sum(
@@ -345,11 +330,18 @@ def override_config(base_config, overriding_config):
     return base_config
 
 
-def train(override_config_path: str):
-    run_config = json.load(open(override_config_path, "r"))
+def _parse_path(dir_path:str):
+    if dir_path.startswith("/"):
+        return dir_path
+    base_dir = os.path.dirname(__file__)
+    return os.path.join(base_dir, dir_path)
+
+
+def train(run_config_path: str):
+    run_config = json.load(open(run_config_path, "r"))
     seed = 42
     seed_everything(seed, workers=True)
-    output_dir = run_config["train_output_dir"]
+    output_dir = _parse_path(run_config["train_output_dir"])
     os.makedirs(output_dir, exist_ok=True)
 
     print("Starting train", time.time())
@@ -362,7 +354,6 @@ def train(override_config_path: str):
     accumulate_grad_batches = run_config.get("accumulate_grad_batches", 1)
     print("config loaded", time.time())
 
-    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device_name = "cuda" if torch.cuda.is_available() else "cpu"
     # device_name = "mps" if device_name == "cpu" and torch.backends.mps.is_available() else device_name
     model_module = ModelWrapper(config)
@@ -377,16 +368,16 @@ def train(override_config_path: str):
         data_module = OpenFoldDataModule(
             config=config.data,
             batch_seed=seed,
-            train_data_dir=run_config["train_input_dir"],
-            val_data_dir=run_config["val_input_dir"],
+            train_data_dir=_parse_path(run_config["train_input_dir"]),
+            val_data_dir=_parse_path(run_config["val_input_dir"]),
             train_epoch_len=run_config.get("train_epoch_len", 1000),
         )
     else:
         data_module = DockFormerDataModule(
             config=config.data,
             batch_seed=seed,
-            train_data_file=run_config["train_input_file"],
-            val_data_file=run_config["val_input_file"],
+            train_data_file=_parse_path(run_config["train_input_file"]),
+            val_data_file=_parse_path(run_config["val_input_file"]),
         )
     print("data module loaded", time.time())
 
@@ -431,7 +422,7 @@ def train(override_config_path: str):
 
     loggers = []
 
-    wandb_project_name = "EvoDocker3"
+    wandb_project_name = run_config["wandb_project_name"]
     wandb_run_id_path = os.path.join(output_dir, "wandb_run_id.txt")
 
     # Initialize WandbLogger and save run_id
