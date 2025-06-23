@@ -2,8 +2,6 @@ import json
 import sys
 from typing import Optional
 
-# This import must be on top to set the environment variables before importing other modules
-import env_consts
 import time
 import os
 
