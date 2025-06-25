@@ -12,7 +12,6 @@ stage 4 - cropping + filtering + create jsons + train/validation jsons
 """
 
 
-import dataclasses
 import os
 import shutil
 import rdkit
@@ -177,7 +176,7 @@ def main():
     status_dict = defaultdict(list)
     for desc_ind, desc in enumerate(all_descriptors):
         output_folder = os.path.join(MODELS_FOLDER, desc.pdb_id)
-        print("processing", desc.pdb_id, desc_ind + 1, "/", len(all_descriptors))
+        print("processing", desc.pdb_id, desc_ind + 1, "/", len(all_descriptors), flush=True)
         try:
             pdbbind_gt_path = os.path.join(PDBBIND_PATH, f"{desc.pdb_id}/{desc.pdb_id}_protein.pdb")
             pdb_pocket_path = os.path.join(PDBBIND_PATH, f"{desc.pdb_id}/{desc.pdb_id}_pocket.pdb")

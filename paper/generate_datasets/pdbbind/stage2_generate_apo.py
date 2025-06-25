@@ -5,13 +5,9 @@ import os
 import shutil
 from collections import defaultdict
 from typing import Optional
-
-import Bio.PDB
-import Bio.SeqIO
-import Bio.SeqUtils
 import requests
 
-from utils import get_all_descriptors, get_pdb_model, get_pdb_model_readonly
+from utils import get_all_descriptors, update_metadata, generate_af_input_gt_in_af, get_sequence_from_pdb
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
                         "data")
@@ -55,102 +51,6 @@ def get_esm_structure(sequence: str) -> Optional[str]:
         return None
 
 
-def get_chain_object_to_seq(chain: Bio.PDB.Chain.Chain) -> str:
-    res_id_to_res = {res.get_id()[1]: res for res in chain.get_residues() if "CA" in res}
-
-    if len(res_id_to_res) == 0:
-        print("skipping empty chain", chain.get_id())
-        return ""
-    seq = ""
-    for i in range(1, max(res_id_to_res) + 1):
-        if i in res_id_to_res:
-            seq += Bio.SeqUtils.seq1(res_id_to_res[i].get_resname())
-        else:
-            seq += "X"
-    return seq
-
-
-def get_sequence_from_pdb(pdb_path: str, chain_id: str = "A") -> str:
-    model = get_pdb_model_readonly(pdb_path)
-    return get_chain_object_to_seq(model[chain_id])
-
-
-def generate_af_input_gt_in_af(gt_path: str, af_path: str, output_path: str):
-    gt_model = get_pdb_model(gt_path)
-    af_model = get_pdb_model(af_path)
-
-    gt_chain = gt_model["A"]
-    af_chain = af_model["A"]
-
-    gt_seq = get_chain_object_to_seq(gt_chain)
-    af_seq = get_chain_object_to_seq(af_chain)
-
-    largest_segment = max(gt_seq.split("X"), key=len)
-
-    i = -1
-    all_possible_af_offsets = []
-    while True:
-        try:
-            i = af_seq.index(largest_segment, i + 1)
-        except ValueError:
-            break
-        all_possible_af_offsets.append(i)
-
-    if len(all_possible_af_offsets) == 0:
-        print("Can't find offset")
-        return False
-
-    gt_offset = gt_seq.index(largest_segment)
-    af_offset = None
-
-    for possible_af_offset in all_possible_af_offsets:
-        offset = possible_af_offset - gt_offset
-
-        if len(gt_seq.strip("X")) + offset > len(af_seq):
-            continue
-        if offset < 0:
-            continue
-
-        error_in_seq = False
-        for i in range(len(gt_seq)):
-            if gt_seq[i] == "X":
-                continue
-            if af_seq[i + offset] == "X":
-                error_in_seq = True
-                break
-            if gt_seq[i] != af_seq[i + offset]:
-                error_in_seq = True
-                break
-        if error_in_seq:
-            continue
-        af_offset = possible_af_offset
-        break
-
-    if af_offset is None:
-        print("Can't find offset")
-        return False
-
-    offset = af_offset - gt_offset
-
-    af_res_by_res_id = {res.get_id()[1]: res for res in af_chain.get_residues() if "CA" in res}
-    new_chain = Bio.PDB.Chain.Chain("A")
-    for gt_res in gt_chain.get_residues():
-        res = af_res_by_res_id[gt_res.id[1] + offset]
-        af_chain.detach_child(res.id)
-        res.id = (" ", gt_res.id[1], " ")
-        # print(gt_res.get_resname(), res.get_resname(), res.id)
-        assert res.get_resname() == gt_res.get_resname(), \
-            f"Residue mismatch {gt_res.get_resname()} {res.get_resname()}"
-        new_chain.add(res)
-
-    io = Bio.PDB.PDBIO()
-    io.set_structure(new_chain)
-    io.save(output_path)
-
-    return True
-
-
-
 def main():
     all_descriptors = get_all_descriptors(NAME_INDEX_PATH, DATA_INDEX_PATH)
 
@@ -162,11 +62,17 @@ def main():
         output_folder = os.path.join(MODELS_FOLDER, desc.pdb_id)
         if not os.path.exists(output_folder):
             continue
-        print("processing", desc.pdb_id, desc_ind + 1, "/", len(all_descriptors))
+        print("processing", desc.pdb_id, desc_ind + 1, "/", len(all_descriptors), flush=True)
 
         gt_pdb_path = os.path.join(output_folder, f"gt_protein.pdb")
         apo_pdb_path = os.path.join(output_folder, f"apo_protein.pdb")
         sequence_path = os.path.join(SEQUENCES_FOR_AF_FOLDER, f"{desc.pdb_id}.fasta")
+
+        metadata_path = os.path.join(output_folder, "metadata.json")
+        update_metadata(metadata_path, {"resolution": desc.resolution,
+                                        "affinity": desc.affinity,
+                                        "release_year": desc.release_year,
+                                        "uniprot": desc.uniprot})
 
         if os.path.exists(apo_pdb_path):
             print("Already processed", desc.pdb_id)
@@ -183,6 +89,7 @@ def main():
                 success = generate_af_input_gt_in_af(gt_pdb_path, af_path, apo_pdb_path)
                 if success:
                     print("Success AF_DB", desc.pdb_id)
+                    update_metadata(metadata_path, {"apo_source": "af_db"})
                     status_dict["success_af"].append(desc.pdb_id)
                     continue
 
@@ -196,6 +103,7 @@ def main():
                 open(apo_pdb_path, "w").write(esm_pdb)
                 assert generate_af_input_gt_in_af(gt_pdb_path, apo_pdb_path, apo_pdb_path), \
                     "Weirdly Failed to generate apo from ESMFold structure"
+                update_metadata(metadata_path, {"apo_source": "esmfold"})
                 status_dict["success_esm"].append(desc.pdb_id)
                 continue
 
