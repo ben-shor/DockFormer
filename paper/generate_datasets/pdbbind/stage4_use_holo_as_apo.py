@@ -1,5 +1,5 @@
 """
-Before running this script, make sure you completed stage1
+Before running this script, make sure you completed stage3
 """
 import os
 import shutil

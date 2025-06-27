@@ -1,8 +1,7 @@
 """
-Before running this script, make sure you completed stage1
+Before running this script, make sure you completed stage4, and set CROP_SIZE to the desired value.
 """
 import os
-import shutil
 from collections import defaultdict
 import numpy as np
 import Bio.PDB

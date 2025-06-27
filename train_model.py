@@ -236,11 +236,13 @@ class ModelWrapper(pl.LightningModule):
                 torch.softmax(outputs["affinity_cls_logits"].clone().detach(), -1) * affinity_linspace, dim=-1)
 
             aff_loss_factor = batch["affinity_loss_factor"].squeeze()
+            affinity_cls_reg_logits = outputs["affinity_cls_reg_logits"].reshape(gt_affinity.shape)
+            aff_loss_factor_reshaped = aff_loss_factor.reshape(gt_affinity.shape)
 
             metrics["affinity_dist_1d"] = (torch.abs(gt_affinity - pred_affinity_1d) * aff_loss_factor).sum() / aff_loss_factor.sum()
             metrics["affinity_dist_2d"] = (torch.abs(gt_affinity - pred_affinity_2d) * aff_loss_factor).sum() / aff_loss_factor.sum()
             metrics["affinity_dist_cls"] = (torch.abs(gt_affinity - pred_affinity_cls) * aff_loss_factor).sum() / aff_loss_factor.sum()
-            metrics["affinity_dist_cls_ref"] = (torch.abs(gt_affinity - outputs["affinity_cls_reg_logits"]) * aff_loss_factor).sum() / aff_loss_factor.sum()
+            metrics["affinity_dist_cls_reg"] = (torch.abs(gt_affinity - affinity_cls_reg_logits) * aff_loss_factor_reshaped).sum() / aff_loss_factor.sum()
             metrics["affinity_dist_avg"] = (torch.abs(gt_affinity - (pred_affinity_cls + pred_affinity_1d + pred_affinity_2d) / 3) * aff_loss_factor).sum() / aff_loss_factor.sum()
             # print("affinity metrics", gt_affinity, pred_affinity_2d, aff_loss_factor, metrics["affinity_dist_1d"],
             #       metrics["affinity_dist_2d"], metrics["affinity_dist_cls"], metrics["affinity_dist_avg"])

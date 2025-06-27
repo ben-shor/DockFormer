@@ -50,6 +50,7 @@ def main():
             assert success, f"Failed to generate apo from AF"
             status_dict["success_manual_af"].append(desc.pdb_id)
             update_metadata(metadata_path, {"apo_source": "af_manual"})
+            print("Success manual AF")
         except Exception as e:
             print("Error with descriptor", desc.pdb_id, e)
             status_dict["error_" + str(e)].append(desc.pdb_id)

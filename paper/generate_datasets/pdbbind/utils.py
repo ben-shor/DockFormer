@@ -1,7 +1,7 @@
 import dataclasses
 import json
 from functools import lru_cache
-from typing import List
+from typing import List, Dict
 import os
 
 import Bio.PDB
@@ -93,6 +93,16 @@ def get_chain_object_to_seq(chain: Bio.PDB.Chain.Chain) -> str:
 def get_sequence_from_pdb(pdb_path: str, chain_id: str = "A") -> str:
     model = get_pdb_model_readonly(pdb_path)
     return get_chain_object_to_seq(model[chain_id])
+
+
+def get_all_sequences_from_pdb(pdb_path: str) -> Dict[str, str]:
+    model = get_pdb_model_readonly(pdb_path)
+    chain_to_seq = {}
+    for chain in model.get_chains():
+        seq = get_chain_object_to_seq(chain)
+        if seq:
+            chain_to_seq[chain.id] = seq
+    return chain_to_seq
 
 
 def generate_af_input_gt_in_af(gt_path: str, af_path: str, output_path: str):
