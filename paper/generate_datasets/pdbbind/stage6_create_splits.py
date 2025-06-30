@@ -21,8 +21,15 @@ DATA_INDEX_PATH = os.path.join(PDBBIND_PATH, "index/INDEX_general_PL_data.2020")
 NAME_INDEX_PATH = os.path.join(PDBBIND_PATH, "index/INDEX_general_PL_name.2020")
 BASE_OUTPUT_FOLDER = os.path.join(DATA_DIR, "pdbbind", "processed")
 MODELS_FOLDER = os.path.join(BASE_OUTPUT_FOLDER, "models")
-JSONS_FOLDER = os.path.join(BASE_OUTPUT_FOLDER, "jsons")
-CROP_SIZE = 256
+# JSONS_FOLDER = os.path.join(BASE_OUTPUT_FOLDER, "jsons")
+# CROP_SIZE = 256
+# OUTPUT_TRAIN_NAME = "train.json"
+# OUTPUT_VALIDATION_NAME = "validation.json"
+
+JSONS_FOLDER = os.path.join(BASE_OUTPUT_FOLDER, "jsons_cs384")
+CROP_SIZE = 384
+OUTPUT_TRAIN_NAME = "train_cs384.json"
+OUTPUT_VALIDATION_NAME = "validation_cs384.json"
 
 CASF2016_PATH = os.path.join(DATA_DIR, "casf2016", "raw", "CASF-2016")
 
@@ -56,6 +63,16 @@ def get_all_casf_ligands(casf_folder):
         all_smiles.append(Chem.MolToSmiles(ligand))
     print("Total ligands:", len(all_smiles), len(set(all_smiles)))
     return list(set(all_smiles))
+
+
+def get_all_casf_pdb_ids(casf_folder):
+    input_data = os.path.join(casf_folder, "power_scoring", "CoreSet.dat")
+    lines = open(input_data).readlines()[1:]
+    all_pdb_ids = []
+    for i in range(len(lines)):
+        all_pdb_ids.append(lines[i].split()[0])
+    print("Total pdb ids:", len(all_pdb_ids))
+    return list(set(all_pdb_ids))
 
 
 def get_ident_percent(seq1: str, seq2: str):
@@ -126,6 +143,7 @@ def main():
     all_descriptors = get_all_descriptors(NAME_INDEX_PATH, DATA_INDEX_PATH)
     paths_to_save = {"train": [], "validation": []}
 
+    all_casf_pdb_ids = get_all_casf_pdb_ids(CASF2016_PATH)
     all_casf_seqs = get_all_casf_seqs(CASF2016_PATH)
     all_casf_ligands = get_all_casf_ligands(CASF2016_PATH)
 
@@ -145,11 +163,16 @@ def main():
         gt_pdb_path = os.path.join(output_folder, f"gt_protein.pdb")
 
         try:
-            similar_to_casf = is_similar_to_casf(gt_pdb_path, gt_ligand_path, all_casf_seqs, all_casf_ligands)
+            if desc.pdb_id in all_casf_pdb_ids:
+                print("CASF pdb id", desc.pdb_id)
+                similar_to_casf = True
+            else:
+                similar_to_casf = is_similar_to_casf(gt_pdb_path, gt_ligand_path, all_casf_seqs, all_casf_ligands)
             split = "train" if not similar_to_casf else "validation"
 
             json_path = os.path.join(JSONS_FOLDER, f"{desc.pdb_id}.json")
-            base_relative_path = os.path.join("models", desc.pdb_id)
+            models_folder_name = os.path.basename(MODELS_FOLDER)
+            base_relative_path = os.path.join(models_folder_name, desc.pdb_id)
             json_data = {
                 "input_structure": os.path.join(base_relative_path, f"apo_protein_cropped_{CROP_SIZE}.pdb"),
                 "gt_structure": os.path.join(base_relative_path, f"gt_protein_cropped_{CROP_SIZE}.pdb"),
@@ -164,18 +187,20 @@ def main():
                 # "protein_seq_len": seq_len,
                 "uniprot": desc.uniprot,
                 # "ligand_num_atoms": ligand_num_atoms,
+                "pdb_id": desc.pdb_id,
             }
             open(json_path, "w").write(json.dumps(json_data, indent=4))
 
-            paths_to_save[split].append(f"jsons/{desc.pdb_id}.json")
+            jsons_folder_name = os.path.basename(JSONS_FOLDER)
+            paths_to_save[split].append(f"{jsons_folder_name}/{desc.pdb_id}.json")
             status_dict[split].append(desc.pdb_id)
         except Exception as e:
             print("Error with descriptor", desc.pdb_id, e)
             status_dict["error_" + str(e)].append(desc.pdb_id)
             continue
 
-    save_list_as_clusters(paths_to_save["train"], os.path.join(BASE_OUTPUT_FOLDER, "train.json"))
-    save_list_as_clusters(paths_to_save["validation"], os.path.join(BASE_OUTPUT_FOLDER, "validation.json"))
+    save_list_as_clusters(paths_to_save["train"], os.path.join(BASE_OUTPUT_FOLDER, OUTPUT_TRAIN_NAME))
+    save_list_as_clusters(paths_to_save["validation"], os.path.join(BASE_OUTPUT_FOLDER, OUTPUT_VALIDATION_NAME))
     print("counts", {k: len(v) for k, v in status_dict.items()})
 
 
