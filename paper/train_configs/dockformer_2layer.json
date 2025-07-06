@@ -1,7 +1,7 @@
 {
     "stage": "initial_training",
     "wandb_project_name": "DockFormer",
-    "train_output_dir": "data/train_runs/dockformer_baseline",
+    "train_output_dir": "data/train_runs/dockformer_2_layer",
     "train_input_file": "data/pdbbind/processed/train_cs256.json",
     "val_input_file": "data/pdbbind/processed/validation_cs256.json",
     "check_val_every_n_epoch": 1,
@@ -11,7 +11,7 @@
     "override_conf": {
       "model": {
         "evoformer_stack": {
-          "no_blocks": 8
+          "no_blocks": 2
         }
       },
 

@@ -21,15 +21,11 @@ DATA_INDEX_PATH = os.path.join(PDBBIND_PATH, "index/INDEX_general_PL_data.2020")
 NAME_INDEX_PATH = os.path.join(PDBBIND_PATH, "index/INDEX_general_PL_name.2020")
 BASE_OUTPUT_FOLDER = os.path.join(DATA_DIR, "pdbbind", "processed")
 MODELS_FOLDER = os.path.join(BASE_OUTPUT_FOLDER, "models")
-# JSONS_FOLDER = os.path.join(BASE_OUTPUT_FOLDER, "jsons")
-# CROP_SIZE = 256
-# OUTPUT_TRAIN_NAME = "train.json"
-# OUTPUT_VALIDATION_NAME = "validation.json"
 
-JSONS_FOLDER = os.path.join(BASE_OUTPUT_FOLDER, "jsons_cs384")
-CROP_SIZE = 384
-OUTPUT_TRAIN_NAME = "train_cs384.json"
-OUTPUT_VALIDATION_NAME = "validation_cs384.json"
+CROP_SIZE = 256
+JSONS_FOLDER = os.path.join(BASE_OUTPUT_FOLDER, f"jsons_cs{CROP_SIZE}")
+OUTPUT_TRAIN_NAME = f"train_cs{CROP_SIZE}.json"
+OUTPUT_VALIDATION_NAME = f"validation_cs{CROP_SIZE}.json"
 
 CASF2016_PATH = os.path.join(DATA_DIR, "casf2016", "raw", "CASF-2016")
 

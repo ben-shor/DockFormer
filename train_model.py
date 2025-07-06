@@ -461,6 +461,7 @@ def train(run_config_path: str):
         check_val_every_n_epoch=run_config.get("check_val_every_n_epoch", 10),
         callbacks=callbacks,
         logger=loggers,
+        max_steps=run_config.get("max_steps", -1),
         # profiler=AdvancedProfiler(),
     )
 
