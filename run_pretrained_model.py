@@ -192,16 +192,15 @@ def run_on_folder(input_dir: str, output_dir: str, run_config_path: str, skip_re
 
 if __name__ == "__main__":
     config_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "run_config.json")
-    input_dir, output_dir = TEST_INPUT_DIR, TEST_OUTPUT_DIR
     options = {"skip_relaxation": True, "long_sequence_inference": False}
-    if len(sys.argv) > 3:
-        input_dir = sys.argv[2]
-        output_dir = sys.argv[3]
-        if "--relax" in sys.argv:
-            options["skip_relaxation"] = False
-        if "--long" in sys.argv:
-            options["long_sequence_inference"] = True
-        if "--allow-skip" in sys.argv:
-            options["skip_exists"] = True
+    assert len(sys.argv) > 3, "usage: <script> input_dir output_dir"
+    input_dir = sys.argv[2]
+    output_dir = sys.argv[3]
+    if "--relax" in sys.argv:
+        options["skip_relaxation"] = False
+    if "--long" in sys.argv:
+        options["long_sequence_inference"] = True
+    if "--allow-skip" in sys.argv:
+        options["skip_exists"] = True
 
     run_on_folder(input_dir, output_dir, config_path, **options)
