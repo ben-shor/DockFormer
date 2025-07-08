@@ -412,6 +412,12 @@ def main(config_path, jsons_path, base_output_folder, ckpt_path=None, should_ski
         input_data = json.load(open(input_json, "r"))
         parent_dir = os.path.dirname(jsons_path)
 
+        # fix input data for no list
+        if "ref_sdf" in input_data and "ref_sdf_list" not in input_data:
+            input_data["ref_sdf_list"] = [input_data["ref_sdf"]]
+        if "gt_sdf" in input_data and "gt_sdf_list" not in input_data:
+            input_data["gt_sdf_list"] = [input_data["gt_sdf"]]
+
         gt_affinity = input_data["affinity"]
 
         affinity_output_path = os.path.join(output_dir, "predictions", f"{jobname}_predicted_affinity.json")
