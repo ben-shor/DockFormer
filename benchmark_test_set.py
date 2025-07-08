@@ -382,10 +382,12 @@ def main(config_path, jsons_path, base_output_folder, ckpt_path=None, should_ski
          relax_structure=False, reembed_ligands=False, save_aligned=False):
     assert not (relax_structure and reembed_ligands), "Can't use both relaxed and reembed"
 
+    base_name = "output_" + os.path.basename(jsons_path).split(".")[0]
+
     i = 0
-    while os.path.exists(os.path.join(base_output_folder, f"output_{i}")):
+    while os.path.exists(os.path.join(base_output_folder, f"{base_name}{i}")):
         i += 1
-    output_dir = os.path.join(base_output_folder, f"output_{i}")
+    output_dir = os.path.join(base_output_folder, f"{base_name}{i}")
     os.makedirs(output_dir, exist_ok=True)
 
     run_on_folder(jsons_path, output_dir, config_path, long_sequence_inference=True, ckpt_path=ckpt_path)
