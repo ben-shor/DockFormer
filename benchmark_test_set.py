@@ -382,7 +382,7 @@ def main(config_path, jsons_path, base_output_folder, ckpt_path=None, should_ski
          relax_structure=False, reembed_ligands=False, save_aligned=False):
     assert not (relax_structure and reembed_ligands), "Can't use both relaxed and reembed"
 
-    base_name = "output_" + os.path.basename(config_path).split(".")[0]
+    base_name = "output_" + os.path.basename(config_path).split(".")[0] + "_"
 
     i = 0
     while os.path.exists(os.path.join(base_output_folder, f"{base_name}{i}")):
