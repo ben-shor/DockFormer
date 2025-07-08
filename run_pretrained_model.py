@@ -14,7 +14,6 @@
 # limitations under the License.
 import sys
 
-from env_consts import TEST_INPUT_DIR, TEST_OUTPUT_DIR
 import json
 import logging
 import numpy as np
