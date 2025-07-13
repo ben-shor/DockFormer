@@ -220,7 +220,8 @@ def main():
             models_folder_name = os.path.basename(MODELS_FOLDER)
             base_relative_path = os.path.join(models_folder_name, model_id)
             sample_data = {
-                "input_structure": os.path.join(base_relative_path, f"apo.pdb"),
+                # "input_structure": os.path.join(base_relative_path, f"apo.pdb"),
+                "input_structure": "apo.pdb",
                 "gt_structure": os.path.join(base_relative_path, f"gt_protein.pdb"),
                 "gt_sdf_list": [os.path.join(base_relative_path, f"gt_ligand_{i}.sdf") for i in range(len(ligand_files))],
                 "ref_sdf_list": [os.path.join(base_relative_path, f"ref_ligand_{i}.sdf") for i in range(len(ligand_files))],
