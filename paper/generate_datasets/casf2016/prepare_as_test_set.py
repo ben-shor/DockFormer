@@ -216,8 +216,8 @@ def main():
         models_folder_name = os.path.basename(MODELS_FOLDER)
         base_relative_path = os.path.join(models_folder_name, pdb_id)
         json_data = {
-            "input_structure": os.path.join(base_relative_path, f"gt_protein.pdb"),
-            "gt_structure": os.path.join(base_relative_path, f"gt_protein.pdb"),
+            "input_structure": os.path.join(base_relative_path, f"gt_protein_mc.pdb"),
+            "gt_structure": os.path.join(base_relative_path, f"gt_protein_mc.pdb"),
             "gt_sdf": os.path.join(base_relative_path, f"gt_ligand.sdf"),
             "ref_sdf": os.path.join(base_relative_path, f"ref_ligand.sdf"),
             "resolution": float(lines[i].split()[1]),
