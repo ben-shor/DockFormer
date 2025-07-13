@@ -49,8 +49,10 @@ def main():
         # json holo pocket
         json_holo_pocket_path = os.path.join(JSONS_HOLO_POCKET_PATH, f"{folder_name}.json")
         json_data = {**base_json_data,
-                     "input_structure": os.path.join(base_relative_path, f"gt_protein_pocket_sc.pdb"),
-                     "gt_structure": os.path.join(base_relative_path, f"gt_protein_pocket_sc.pdb"),
+                     # "input_structure": os.path.join(base_relative_path, f"gt_protein_pocket_sc.pdb"),
+                     # "gt_structure": os.path.join(base_relative_path, f"gt_protein_pocket_sc.pdb"),
+                     "input_structure": os.path.join(base_relative_path, f"gt_protein_pocket_mc.pdb"),
+                     "gt_structure": os.path.join(base_relative_path, f"gt_protein_pocket_mc.pdb"),
                      }
         open(json_holo_pocket_path, "w").write(json.dumps(json_data, indent=4))
         paths_to_save["holo_pocket"].append(f"{os.path.basename(JSONS_HOLO_POCKET_PATH)}/{folder_name}.json")
@@ -62,7 +64,8 @@ def main():
             json_pocket_path = os.path.join(JSONS_POCKET_PATH, f"{folder_name}.json")
             json_data = {**base_json_data,
                          "input_structure": os.path.join(base_relative_path, f"apo_protein_pocket.pdb"),
-                         "gt_structure": os.path.join(base_relative_path, f"gt_protein_pocket_sc.pdb"),
+                         # "gt_structure": os.path.join(base_relative_path, f"gt_protein_pocket_sc.pdb"),
+                         "gt_structure": os.path.join(base_relative_path, f"gt_protein_pocket_mc.pdb"),
                          }
             open(json_pocket_path, "w").write(json.dumps(json_data, indent=4))
             paths_to_save["pocket"].append(f"{os.path.basename(JSONS_POCKET_PATH)}/{folder_name}.json")
@@ -75,7 +78,8 @@ def main():
             json_full_path = os.path.join(JSONS_FULL_PATH, f"{folder_name}.json")
             json_data = {**base_json_data,
                          "input_structure": os.path.join(base_relative_path, f"apo_protein_full.pdb"),
-                         "gt_structure": os.path.join(base_relative_path, f"gt_protein_full_sc.pdb"),
+                         # "gt_structure": os.path.join(base_relative_path, f"gt_protein_full_sc.pdb"),
+                         "gt_structure": os.path.join(base_relative_path, f"gt_protein_full_mc.pdb"),
                          }
             open(json_full_path, "w").write(json.dumps(json_data, indent=4))
             paths_to_save["full"].append(f"{os.path.basename(JSONS_FULL_PATH)}/{folder_name}.json")
