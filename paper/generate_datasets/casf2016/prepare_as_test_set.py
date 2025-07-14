@@ -259,7 +259,7 @@ def main():
 
         remove_non_canonical_chains_and_residues(pdb_path, gt_pdb_full_path)
         # merge_to_single_chain(gt_pdb_mc_path, gt_pdb_path)
-        get_only_pocket_chains(gt_pdb_full_path, lig_path, gt_pdb_pocket_path)
+        get_only_pocket_chains(gt_pdb_full_path, gt_ligand_path, gt_pdb_pocket_path)
 
         models_folder_name = os.path.basename(MODELS_FOLDER)
         base_relative_path = os.path.join(models_folder_name, pdb_id)
