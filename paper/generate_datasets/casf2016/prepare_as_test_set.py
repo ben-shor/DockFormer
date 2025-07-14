@@ -9,6 +9,7 @@ import rdkit
 from rdkit.Chem import AllChem
 import Bio.PDB, Bio.SeqUtils
 from typing import Optional
+import numpy as np
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
                         "data")
@@ -16,7 +17,8 @@ DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.
 CASF2016_PATH = os.path.join(DATA_DIR, "casf2016", "raw", "CASF-2016")
 BASE_OUTPUT_FOLDER = os.path.join(DATA_DIR, "casf2016", "processed")
 MODELS_FOLDER = os.path.join(BASE_OUTPUT_FOLDER, "models")
-JSONS_FOLDER = os.path.join(BASE_OUTPUT_FOLDER, f"jsons")
+JSONS_FULL_FOLDER = os.path.join(BASE_OUTPUT_FOLDER, f"jsons_full")
+JSONS_POCKET_FOLDER = os.path.join(BASE_OUTPUT_FOLDER, f"jsons_pocket")
 
 def reconstruct_mol(mol):
     new_mol = Chem.RWMol()
@@ -166,17 +168,62 @@ def merge_to_single_chain(pdb_path: str, output_path: str):
     io.save(output_path)
 
 
+def get_only_pocket_chains(pdb_path: str, sdf_path: str, output_path: str):
+    protein = Chem.MolFromPDBFile(pdb_path, sanitize=False)
+    ligand = Chem.MolFromMolFile(sdf_path)
+
+    protein_conf = protein.GetConformer()
+    protein_pos = protein_conf.GetPositions()
+    protein_atoms = list(protein.GetAtoms())
+    assert len(protein_pos) == len(protein_atoms), f"Positions and atoms mismatch in {pdb_path}"
+
+    ligand_conf = ligand.GetConformer()
+    ligand_pos = ligand_conf.GetPositions()
+
+    inter_dists = ligand_pos[:, np.newaxis, :] - protein_pos[np.newaxis, :, :]
+    inter_dists = np.sqrt((inter_dists ** 2).sum(-1))
+    min_inter_dist_per_protein_atom = inter_dists.min(axis=0)
+    protein_idx_by_dist = np.argsort(min_inter_dist_per_protein_atom)
+
+    chains_to_save = set()
+    for idx in protein_idx_by_dist:
+        res = protein_atoms[idx].GetPDBResidueInfo()
+        if min_inter_dist_per_protein_atom[idx] > 5.0:
+            break
+        if res.GetIsHeteroAtom():
+            continue
+        chains_to_save.add(res.GetChainId())
+
+    pdb_model = get_pdb_model(pdb_path)
+    all_chain_ids = [c.id for c in pdb_model.get_chains()]
+    if len(chains_to_save) != len(all_chain_ids):
+        print(f"Removing some chains ({len(chains_to_save)} vs {len(all_chain_ids)}) in {pdb_path}")
+    else:
+        print(f"All chains are saved ({len(chains_to_save)}) in {pdb_path}")
+
+    chains_to_remove = set(all_chain_ids) - chains_to_save
+
+    for chain_id in chains_to_remove:
+        pdb_model.detach_child(chain_id)
+
+    io = Bio.PDB.PDBIO()
+    io.set_structure(pdb_model)
+    io.save(output_path)
+
+
 def main():
     input_data = os.path.join(CASF2016_PATH, "power_scoring", "CoreSet.dat")
     lines = open(input_data).readlines()[1:]
 
     os.makedirs(MODELS_FOLDER, exist_ok=True)
-    os.makedirs(JSONS_FOLDER, exist_ok=True)
+    os.makedirs(JSONS_FULL_FOLDER, exist_ok=True)
+    os.makedirs(JSONS_POCKET_FOLDER, exist_ok=True)
 
     for i in range(len(lines)):
         pdb_id = lines[i].split()[0]
-        json_path = os.path.join(JSONS_FOLDER, f"{pdb_id}.json")
-        if os.path.exists(json_path):
+        json_full_path = os.path.join(JSONS_FULL_FOLDER, f"{pdb_id}.json")
+        json_pocket_path = os.path.join(JSONS_POCKET_FOLDER, f"{pdb_id}.json")
+        if os.path.exists(json_full_path):
             print(f"Skipping {pdb_id}, already processed")
             continue
         print(f"processing {pdb_id}")
@@ -188,8 +235,8 @@ def main():
         os.makedirs(output_folder, exist_ok=True)
 
         ref_ligand_path = os.path.join(output_folder, f"ref_ligand.sdf")
-        gt_pdb_path = os.path.join(output_folder, f"gt_protein.pdb")
-        gt_pdb_mc_path = os.path.join(output_folder, f"gt_protein_mc.pdb")
+        gt_pdb_full_path = os.path.join(output_folder, f"gt_full_protein.pdb")
+        gt_pdb_pocket_path = os.path.join(output_folder, f"gt_pocket.pdb")
         gt_ligand_path = os.path.join(output_folder, f"gt_ligand.sdf")
 
         ligand = Chem.MolFromMol2File(lig_path)
@@ -210,14 +257,15 @@ def main():
         except:
             assert False, f"Ref ligand is not the same as original"
 
-        remove_non_canonical_chains_and_residues(pdb_path, gt_pdb_mc_path)
-        merge_to_single_chain(gt_pdb_mc_path, gt_pdb_path)
+        remove_non_canonical_chains_and_residues(pdb_path, gt_pdb_full_path)
+        # merge_to_single_chain(gt_pdb_mc_path, gt_pdb_path)
+        get_only_pocket_chains(gt_pdb_full_path, lig_path, gt_pdb_pocket_path)
 
         models_folder_name = os.path.basename(MODELS_FOLDER)
         base_relative_path = os.path.join(models_folder_name, pdb_id)
-        json_data = {
-            "input_structure": os.path.join(base_relative_path, f"gt_protein_mc.pdb"),
-            "gt_structure": os.path.join(base_relative_path, f"gt_protein_mc.pdb"),
+        json_full_data = {
+            "input_structure": os.path.join(base_relative_path, f"gt_full_protein.pdb"),
+            "gt_structure": os.path.join(base_relative_path, f"gt_full_protein.pdb"),
             "gt_sdf": os.path.join(base_relative_path, f"gt_ligand.sdf"),
             "ref_sdf": os.path.join(base_relative_path, f"ref_ligand.sdf"),
             "resolution": float(lines[i].split()[1]),
@@ -226,7 +274,15 @@ def main():
             "uniprot": pdb_id,
             "pdb_id": pdb_id,
         }
-        open(json_path, "w").write(json.dumps(json_data, indent=4))
+        open(json_full_path, "w").write(json.dumps(json_full_data, indent=4))
+
+        json_pocket_data = {
+            **json_full_data,
+            "input_structure": os.path.join(base_relative_path, f"gt_pocket.pdb"),
+            "gt_structure": os.path.join(base_relative_path, f"gt_pocket.pdb"),
+        }
+        open(json_pocket_path, "w").write(json.dumps(json_pocket_data, indent=4))
+
     print("done")
 
 
