@@ -22,7 +22,7 @@ def main():
     os.makedirs(JSONS_POCKET_PATH, exist_ok=True)
     os.makedirs(JSONS_HOLO_POCKET_PATH, exist_ok=True)
 
-    paths_to_save = {"full": [], "pocket": [], "holo_pocket": []}
+    # paths_to_save = {"full": [], "pocket": [], "holo_pocket": []}
 
     status_dict = defaultdict(list)
     for folder_name in os.listdir(RAW_PATH):
@@ -55,7 +55,7 @@ def main():
                      "gt_structure": os.path.join(base_relative_path, f"gt_protein_pocket_mc.pdb"),
                      }
         open(json_holo_pocket_path, "w").write(json.dumps(json_data, indent=4))
-        paths_to_save["holo_pocket"].append(f"{os.path.basename(JSONS_HOLO_POCKET_PATH)}/{folder_name}.json")
+        # paths_to_save["holo_pocket"].append(f"{os.path.basename(JSONS_HOLO_POCKET_PATH)}/{folder_name}.json")
 
         # json pocket
         pocket_exists = os.path.exists(os.path.join(MODELS_FOLDER, folder_name, "apo_protein_pocket.pdb"))
@@ -68,7 +68,7 @@ def main():
                          "gt_structure": os.path.join(base_relative_path, f"gt_protein_pocket_mc.pdb"),
                          }
             open(json_pocket_path, "w").write(json.dumps(json_data, indent=4))
-            paths_to_save["pocket"].append(f"{os.path.basename(JSONS_POCKET_PATH)}/{folder_name}.json")
+            # paths_to_save["pocket"].append(f"{os.path.basename(JSONS_POCKET_PATH)}/{folder_name}.json")
         else:
             status_dict["no_pocket"].append(folder_name)
             continue
@@ -82,12 +82,12 @@ def main():
                          "gt_structure": os.path.join(base_relative_path, f"gt_protein_full_mc.pdb"),
                          }
             open(json_full_path, "w").write(json.dumps(json_data, indent=4))
-            paths_to_save["full"].append(f"{os.path.basename(JSONS_FULL_PATH)}/{folder_name}.json")
+            # paths_to_save["full"].append(f"{os.path.basename(JSONS_FULL_PATH)}/{folder_name}.json")
             print("using full structure")
             status_dict["full"].append(folder_name)
         else:
             print("using pocket instead of full")
-            paths_to_save["full"].append(f"{os.path.basename(JSONS_POCKET_PATH)}/{folder_name}.json")
+            # paths_to_save["full"].append(f"{os.path.basename(JSONS_POCKET_PATH)}/{folder_name}.json")
             status_dict["only_pocket"].append(folder_name)
 
     # json.dump(paths_to_save["full"], open(os.path.join(BASE_OUTPUT_FOLDER, "full.json"), "w"), indent=4)

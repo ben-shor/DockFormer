@@ -29,10 +29,13 @@ def main():
         if not os.path.isdir(output_folder):
             continue
 
+        # if folder_name not in ('8F8E_XJI', '7XRL_FWK', '7MS7_ZQ1', "7SUC_COM", ):
+        #     continue
+
         print("processing", folder_name, flush=True)
 
-        gt_pdb_full_sc_path = os.path.join(output_folder, f"gt_protein_full_sc.pdb")  # all chains, multi chain
-        gt_pdb_pocket_sc_path = os.path.join(output_folder, f"gt_protein_pocket_sc.pdb")  # pocket chains, multi chain
+        gt_pdb_full_sc_path = os.path.join(output_folder, f"gt_protein_full_mc.pdb")  # all chains, multi chain
+        gt_pdb_pocket_sc_path = os.path.join(output_folder, f"gt_protein_pocket_mc.pdb")  # pocket chains, multi chain
         apo_pdb_full_sc_path = os.path.join(output_folder, f"apo_protein_full.pdb")  # all chains, multi chain
         apo_pdb_pocket_sc_path = os.path.join(output_folder, f"apo_protein_pocket.pdb")  # pocket chains, multi chain
 
@@ -46,11 +49,11 @@ def main():
             print("Multiple manual AF files found for", folder_name, manual_af_files)
 
         af_path = os.path.join(MANUAL_AF_RESULTS_PATH, manual_af_files[0])
-        tmp_af_path = os.path.join(output_folder, "tmp_af.pdb")
-        if "alphafold2_multimer" in manual_af_files[0]:
-            merge_to_single_chain(af_path, tmp_af_path)
-            af_path = tmp_af_path
-            print("using merged AF file for", folder_name, "from", manual_af_files[0])
+        # tmp_af_path = os.path.join(output_folder, "tmp_af.pdb")
+        # if "alphafold2_multimer" in manual_af_files[0]:
+        #     merge_to_single_chain(af_path, tmp_af_path)
+        #     af_path = tmp_af_path
+        #     print("using merged AF file for", folder_name, "from", manual_af_files[0])
 
         success_full = generate_af_input_gt_in_af(gt_pdb_full_sc_path, af_path, apo_pdb_full_sc_path)
         success_pocket = generate_af_input_gt_in_af(gt_pdb_pocket_sc_path, af_path, apo_pdb_pocket_sc_path)

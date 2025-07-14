@@ -1,7 +1,7 @@
 import dataclasses
 import json
 from functools import lru_cache
-from typing import List, Dict
+from typing import List, Dict, Tuple, Optional
 import os
 
 import Bio.PDB
@@ -65,64 +65,98 @@ def get_all_sequences_from_pdb(pdb_path: str) -> Dict[str, str]:
     return chain_to_seq
 
 
-def generate_af_input_gt_in_af(gt_path: str, af_path: str, output_path: str):
-    gt_model = get_pdb_model(gt_path)
-    af_model = get_pdb_model(af_path)
-
-    gt_chain = gt_model["A"]
-    af_chain = af_model["A"]
-
-    # Convert chains to sequences
-    gt_seq = get_chain_object_to_seq(gt_chain).replace("X", "")
-    af_seq = get_chain_object_to_seq(af_chain).replace("X", "")
-
+def try_to_align_sequences(gt_seq: str, af_seq: str) -> Optional[Tuple[str, str]]:
     # Perform global alignment (match/mismatch/gap scores can be tuned)
     alignments = pairwise2.align.globalms(gt_seq, af_seq, 2, -10000, -1, 0)
 
     if not alignments:
         print("No alignment found.")
-        return False
+        return None
 
     best_alignment = alignments[0]
     aligned_gt, aligned_af, score, start, end = best_alignment
 
     if "-" in aligned_af:
         print("Alignment contains gaps in AF sequence, which is not allowed.")
-        return False
+        return None
 
     # For debugging, optional
     # print(format_alignment(*best_alignment))
 
-    gt_residues = list(gt_chain.get_residues())
-    af_residues = list(af_chain.get_residues())
+    return aligned_gt, aligned_af
 
-    gt_index, af_index = 0, 0
-    new_chain = PDB.Chain.Chain("A")
 
-    for a_gt, a_af in zip(aligned_gt, aligned_af):
-        if a_gt == "-":
-            af_index += 1
-            continue
-        gt_res = gt_residues[gt_index]
-        af_res = af_residues[af_index]
+def generate_af_input_gt_in_af(gt_path: str, af_path: str, output_path: str):
+    gt_model = get_pdb_model(gt_path)
+    af_model = get_pdb_model(af_path)
 
-        if gt_res.get_resname() != af_res.get_resname():
-            print(f"Residue mismatch at {gt_res.id[1]}: GT {gt_res.get_resname()} != AF {af_res.get_resname()}")
-            return False
+    if not len(gt_model) <= len(af_model):
+        print("Not same number of chains in model", len(gt_model), len(af_model))
+        return False
 
-        af_chain.detach_child(af_res.id)  # remove from original AF chain
-        af_res.id = (" ", gt_res.id[1], " ")  # reset to GT's numbering
-        new_chain.add(af_res)
-
-        gt_index += 1
-        af_index += 1
-
-    # Write to output
     structure = Bio.PDB.Structure.Structure("X")
     model = Bio.PDB.Model.Model(0)
     structure.add(model)
-    model.add(new_chain)
 
+    gt_chain_by_len = sorted(gt_model.get_chains(), key=lambda c: (-len(c), c.id))
+    af_chain_by_len = sorted(af_model.get_chains(), key=lambda c: (-len(c), c.id))
+
+    gt_index = 0
+    af_index = 0
+
+    """
+    Using and skipping indexes is a dumb heuristic to extract pockets if that is the entire gt. 
+    This works here, but doesn't necessarily work with everything, and can cause issues.
+    """
+
+    while gt_index < len(gt_chain_by_len) and af_index < len(af_chain_by_len):
+        gt_chain = gt_chain_by_len[gt_index]
+        af_chain = af_chain_by_len[af_index]
+
+        # Convert chains to sequences
+        gt_seq = get_chain_object_to_seq(gt_chain).replace("X", "")
+        af_seq = get_chain_object_to_seq(af_chain).replace("X", "")
+
+        # print("comparing", gt_chain.id, af_chain.id)
+        # print(gt_seq)
+        # print(af_seq)
+
+        aligned = try_to_align_sequences(gt_seq, af_seq)
+        if aligned is None:
+            print(f"Failed to align sequences for chains {gt_chain.id} and {af_chain.id}.")
+            af_index += 1
+            continue
+        aligned_gt, aligned_af = aligned
+
+        gt_residues = list(gt_chain.get_residues())
+        af_residues = list(af_chain.get_residues())
+
+        gt_index, af_index = 0, 0
+        new_chain = PDB.Chain.Chain(gt_chain.id)
+
+        for a_gt, a_af in zip(aligned_gt, aligned_af):
+            if a_gt == "-":
+                af_index += 1
+                continue
+            gt_res = gt_residues[gt_index]
+            af_res = af_residues[af_index]
+
+            if gt_res.get_resname() != af_res.get_resname():
+                print(f"Residue mismatch at {gt_res.id[1]}: GT {gt_res.get_resname()} != AF {af_res.get_resname()}")
+                return False
+
+            af_chain.detach_child(af_res.id)  # remove from original AF chain
+            af_res.id = (" ", gt_res.id[1], " ")  # reset to GT's numbering
+            new_chain.add(af_res)
+
+            gt_index += 1
+            af_index += 1
+        model.add(new_chain)
+    if gt_index < len(gt_chain_by_len):
+        print(f"Not all GT chains processed, remaining: {len(gt_chain_by_len) - gt_index}")
+        return False
+
+    # Write to output
     io = Bio.PDB.PDBIO()
     io.set_structure(structure)
     io.save(output_path)
