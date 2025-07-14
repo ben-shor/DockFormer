@@ -176,7 +176,7 @@ def main():
     for i in range(len(lines)):
         pdb_id = lines[i].split()[0]
         json_path = os.path.join(JSONS_FOLDER, f"{pdb_id}.json")
-        if os.path.exists(json_path) and pdb_id != "2vkm":
+        if os.path.exists(json_path):
             print(f"Skipping {pdb_id}, already processed")
             continue
         print(f"processing {pdb_id}")

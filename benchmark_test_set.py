@@ -316,7 +316,8 @@ def get_rmsd(gt_protein_path: str, gt_ligand_path: str, pred_protein_path: str, 
                 new_pos = np.dot(pos, alt_super_imposer.rotran[0]) + alt_super_imposer.rotran[1]
                 alt_pred_ligand_conf.SetAtomPosition(i, Point3D(float(new_pos[0]), float(new_pos[1]), float(new_pos[2])))
             # get the RMSD
-            alt_ligand_rmsd = rdkit.Chem.rdMolAlign.CalcRMS(alt_pred_ligand, gt_ligand, prbId=conf_id)
+            alt_ligand_rmsd, alt_match_ratio = calculate_ligand_rmsd_with_fallback(alt_pred_ligand, gt_ligand,
+                                                                                   conf_id=conf_id)
             print(f"Alternative pocket found {alt_gt_chain_id} {alt_super_imposer.rms} {alt_ligand_rmsd} ")
 
             if alt_ligand_rmsd < ligand_rmsd:
@@ -325,6 +326,7 @@ def get_rmsd(gt_protein_path: str, gt_ligand_path: str, pred_protein_path: str, 
                 pocket_rmsd = alt_super_imposer.rms
                 super_imposer = alt_super_imposer
                 pred_ligand = alt_pred_ligand
+                matching_atoms_ratio = alt_match_ratio
 
     # output aligned
     if save_aligned:
@@ -544,52 +546,3 @@ if __name__ == "__main__":
         reembed_ligands=args.reembed_ligands,
         save_aligned=args.save_aligned
     )
-
-    # config_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "run_config.json")
-    # dataset_name = sys.argv[2] if len(sys.argv) > 2 else "basic_local"
-    # arg_ckpt_path = sys.argv[3] if len(sys.argv) > 3 else None
-    #
-    # should_skip_structures = False
-    # if dataset_name == "basic_local":
-    #     jsons_path = "/Users/benshor/Documents/Data/202401_pred_affinity/local_tests/input_manual"
-    #     output_folder = "/Users/benshor/Documents/Data/202401_pred_affinity/local_tests/test_outputs"
-    # elif dataset_name == "casf2016":
-    #     jsons_path = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/CASF2016/CASF-2016/dockformer_jsons_dockformer_pocket"
-    #     output_folder = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/CASF2016/dockformer_predictions_20250121"
-    # elif dataset_name == "casp_test":
-    #     jsons_path = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/jsons"
-    #     output_folder = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/output"
-    # elif dataset_name == "casp_test_diverse":
-    #     jsons_path = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/diverse_jsons"
-    #     output_folder = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/output"
-    # elif dataset_name == "casp_test_only_aff":
-    #     jsons_path = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/jsons_only_aff"
-    #     output_folder = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/output_only_aff"
-    #     should_skip_structures = True
-    # elif dataset_name == "casp_test_aff":
-    #     jsons_path = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/jsons_aff_dataset"
-    #     output_folder = "/cs/usr/bshor/sci/projects/pred_affinity/202405_evodocker/casp_test_set/output_aff"
-    #     should_skip_structures = True
-    # elif dataset_name == "plinder_test":
-    #     jsons_path = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/202409_plinder/processed/plinder_jsons_test"
-    #     output_folder = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/test_set_plinder/output"
-    # elif dataset_name == "posebusters2":
-    #     jsons_path = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset2/input_json_with_gt"
-    #     output_folder = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset2/output"
-    # elif dataset_name == "posebusters3":
-    #     jsons_path = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset3/jsons_no_big"
-    #     output_folder = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset3/output"
-    # elif dataset_name == "posebusters3_holo":
-    #     jsons_path = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset3/jsons_no_big_holo"
-    #     output_folder = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset3/output"
-    # elif dataset_name == "posebusters3_big":
-    #     jsons_path = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset3/jsons_big"
-    #     output_folder = "/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/posebusters_dataset3/output"
-    # else:
-    #     raise ValueError(f"Unknown dataset name: {dataset_name}")
-
-    # if dataset_name != "basic_local":
-    #     name = f"{dataset_name}_{os.path.basename(config_path).split('.')[0]}"
-    #     output_folder = f"/sci/labs/dina/bshor/projects/pred_affinity/202405_evodocker/benchmark_outputs/{name}"
-    #
-    # main(config_path, jsons_path, output_folder, ckpt_path=arg_ckpt_path, should_skip_structures=should_skip_structures)
