@@ -101,17 +101,19 @@ def generate_af_input_gt_in_af(gt_path: str, af_path: str, output_path: str):
     gt_chain_by_len = sorted(gt_model.get_chains(), key=lambda c: (-len(c), c.id))
     af_chain_by_len = sorted(af_model.get_chains(), key=lambda c: (-len(c), c.id))
 
-    gt_index = 0
-    af_index = 0
+    gt_chain_index = 0
+    af_chain_index = 0
+
+    # print("total chains", len(gt_chain_by_len), len(af_chain_by_len))
 
     """
     Using and skipping indexes is a dumb heuristic to extract pockets if that is the entire gt. 
     This works here, but doesn't necessarily work with everything, and can cause issues.
     """
 
-    while gt_index < len(gt_chain_by_len) and af_index < len(af_chain_by_len):
-        gt_chain = gt_chain_by_len[gt_index]
-        af_chain = af_chain_by_len[af_index]
+    while gt_chain_index < len(gt_chain_by_len) and af_chain_index < len(af_chain_by_len):
+        gt_chain = gt_chain_by_len[gt_chain_index]
+        af_chain = af_chain_by_len[af_chain_index]
 
         # Convert chains to sequences
         gt_seq = get_chain_object_to_seq(gt_chain).replace("X", "")
@@ -124,22 +126,22 @@ def generate_af_input_gt_in_af(gt_path: str, af_path: str, output_path: str):
         aligned = try_to_align_sequences(gt_seq, af_seq)
         if aligned is None:
             print(f"Failed to align sequences for chains {gt_chain.id} and {af_chain.id}.")
-            af_index += 1
+            af_chain_index += 1
             continue
         aligned_gt, aligned_af = aligned
 
         gt_residues = list(gt_chain.get_residues())
         af_residues = list(af_chain.get_residues())
 
-        gt_index, af_index = 0, 0
+        gt_res_index, af_res_index = 0, 0
         new_chain = PDB.Chain.Chain(gt_chain.id)
 
         for a_gt, a_af in zip(aligned_gt, aligned_af):
             if a_gt == "-":
-                af_index += 1
+                af_res_index += 1
                 continue
-            gt_res = gt_residues[gt_index]
-            af_res = af_residues[af_index]
+            gt_res = gt_residues[gt_res_index]
+            af_res = af_residues[af_res_index]
 
             if gt_res.get_resname() != af_res.get_resname():
                 print(f"Residue mismatch at {gt_res.id[1]}: GT {gt_res.get_resname()} != AF {af_res.get_resname()}")
@@ -149,11 +151,13 @@ def generate_af_input_gt_in_af(gt_path: str, af_path: str, output_path: str):
             af_res.id = (" ", gt_res.id[1], " ")  # reset to GT's numbering
             new_chain.add(af_res)
 
-            gt_index += 1
-            af_index += 1
+            gt_res_index += 1
+            af_res_index += 1
         model.add(new_chain)
-    if gt_index < len(gt_chain_by_len):
-        print(f"Not all GT chains processed, remaining: {len(gt_chain_by_len) - gt_index}")
+        gt_chain_index += 1
+        af_chain_index += 1
+    if gt_chain_index < len(gt_chain_by_len):
+        print(f"Not all GT chains processed, remaining: {len(gt_chain_by_len) - gt_chain_index}")
         return False
 
     # Write to output

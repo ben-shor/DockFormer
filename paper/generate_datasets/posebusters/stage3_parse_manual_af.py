@@ -29,7 +29,7 @@ def main():
         if not os.path.isdir(output_folder):
             continue
 
-        # if folder_name not in ('8F8E_XJI', '7XRL_FWK', '7MS7_ZQ1', "7SUC_COM", ):
+        # if folder_name not in ('6XAF_GDP', ):
         #     continue
 
         print("processing", folder_name, flush=True)
