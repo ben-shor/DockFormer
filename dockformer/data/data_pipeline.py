@@ -340,7 +340,8 @@ def parse_input_json(input_path: str, mode: str, config: mlc.ConfigDict, data_pi
     ligand_bonds_feat[n_res:n_res + n_lig, n_res:n_res + n_lig] = ref_ligand_feats["ligand_bonds_feat"]
 
     input_positions = torch.zeros((crop_size, 3), dtype=torch.float32)
-    input_positions[:n_res] = input_protein_feats["pseudo_beta"]
+    if not config.common.mask_input_structure:
+        input_positions[:n_res] = input_protein_feats["pseudo_beta"]
     input_positions[n_res:n_res + n_lig] = ref_ligand_feats["ligand_positions"]
 
     protein_distogram_mask = torch.zeros(crop_size)
@@ -492,6 +493,12 @@ def parse_input_json(input_path: str, mode: str, config: mlc.ConfigDict, data_pi
 
         for k, v in gt_protein_feats.items():
             gt_protein_feats[k] = _fit_to_crop(v, crop_size, 0)
+
+        if mode == "train" and config.common.mask_gt_structure:
+            for k, v in gt_protein_feats.items():
+                # if "mask" in k or "exists" in k:
+                #     continue
+                gt_protein_feats[k] = torch.zeros_like(v)
 
         feats = {
             **feats,

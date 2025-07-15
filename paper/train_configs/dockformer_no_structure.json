@@ -1,0 +1,44 @@
+{
+    "stage": "initial_training",
+    "wandb_project_name": "DockFormer",
+    "train_output_dir": "data/train_runs/dockformer_no_structure",
+    "train_input_file": "data/pdbbind/processed/train_cs256.json",
+    "val_input_file": "data/pdbbind/processed/validation_cs256.json",
+    "check_val_every_n_epoch": 1,
+    "accumulate_grad_batches": 1,
+    "multi_node" : {"num_nodes": 1, "devices": 4},
+    "max_steps": 50000,
+    "override_conf": {
+      "model": {
+        "evoformer_stack": {
+          "no_blocks": 2
+        }
+      },
+
+      "data": {
+        "common": {
+          "max_recycling_iters": 3,
+          "mask_input_structure": true,
+          "mask_gt_structure": true
+        },
+        "data_module": {"data_loaders": {"batch_size": 4}},
+        "train": {"crop_size": 259, "fixed_size": true}
+      },
+      "loss": {
+        "affinity1d": {"weight": 0.03},
+        "affinity2d": {"weight": 0.03},
+        "affinity_cls": {"weight": 0.03},
+        "positions_intra_distogram": {"weight": 0.0},
+        "inter_contact": {"weight": 0.0, "pos_class_weight": 10.0},
+        "binding_site": {"weight": 0.0},
+        "distogram": {"weight": 0.0},
+        "fape_backbone": {"weight": 0.0},
+        "fape_sidechain": {"weight": 0.0},
+        "fape_interface": {"weight": 0.0},
+        "plddt_loss": {"weight": 0.0},
+        "supervised_chi": {"weight": 0.0},
+        "chain_center_of_mass": {"weight": 0.0}
+      },
+      "globals": {"max_lr": 0.0002}
+    }
+}

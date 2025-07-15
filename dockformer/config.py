@@ -101,6 +101,8 @@ config = mlc.ConfigDict(
                     "use_clamped_fape": [],
                 },
                 "max_recycling_iters": 1,
+                "mask_input_structure": False,
+                "mask_gt_structure": False,
                 "unsupervised_features": [
                     "aatype",
                     "residue_index",
