@@ -29,6 +29,6 @@
         "affinity_cls": {"weight": 0.03},
         "fape_interface": {"weight": 1.0}
       },
-      "globals": {"max_lr": 0.001}
+      "globals": {"max_lr": 0.0004}
     }
 }
