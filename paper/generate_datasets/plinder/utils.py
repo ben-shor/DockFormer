@@ -111,6 +111,9 @@ def do_robust_chain_object_renumber(chain: Bio.PDB.Chain.Chain, new_chain_id: st
 
     res_and_res_id_no_collisions = []
     for res, res_id in res_and_res_id[::-1]:
+        if res.id[2] == "P":
+            print(f"Residue {res.id} in chain {chain.id} has weird insertion code, skipping")
+            continue
         if res_and_res_id_no_collisions and res_and_res_id_no_collisions[-1][1] == res_id:
             # there is a collision, usually an insertion residue
             res_and_res_id_no_collisions = [(i, j + 1) for i, j in res_and_res_id_no_collisions]

@@ -11,8 +11,10 @@ https://storage.googleapis.com/plinder/2024-06/v2/linked_structures/apo.zip
 https://storage.googleapis.com/plinder/2024-06/v2/linked_structures/pred.zip
 
 (3) install GSUtil and put the folder google-cloud-sdk in data/plinder/raw
+https://cloud.google.com/sdk/docs/install#linux
 
 (4) install pandas and pyarrow on your python environment
+pip install pandas pyarrow
 """
 import json
 import os
