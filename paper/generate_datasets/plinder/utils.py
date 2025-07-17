@@ -128,7 +128,11 @@ def do_robust_chain_object_renumber(chain: Bio.PDB.Chain.Chain, new_chain_id: st
     for res, res_id in res_and_res_id_no_collisions:
         chain.detach_child(res.id)
         res.id = (" ", res_id + factor, " ")
-        new_chain.add(res)
+        try:
+            new_chain.add(res)
+        except:
+            print(f"Failed to add residue {res.id} to chain {new_chain_id}, skipping")
+            continue
 
     return new_chain
 
