@@ -242,7 +242,7 @@ class DataPipeline:
 
             joined_gt_positions.extend(gt_positions)
 
-        return torch.stack(joined_gt_positions)
+        return torch.stack(joined_gt_positions).float()
 
     def get_matching_positions(self, ref_ligand_path: str, gt_ligand_path: str):
         gt_positions = self._get_gt_positions(ref_ligand_path, gt_ligand_path)
