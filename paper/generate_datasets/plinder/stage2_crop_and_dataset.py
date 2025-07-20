@@ -62,7 +62,7 @@ def get_protein_res_ids_to_keep(pdb_path: str, sdf_paths: List[str], crop_size: 
         res = atom.GetPDBResidueInfo()
         if res.GetIsHeteroAtom():
             continue
-        all_protein_residues.add(res.GetResidueNumber())
+        all_protein_residues.add((res.GetChainId(), res.GetResidueNumber()))
 
     res_to_save_count = crop_size - total_ligand_atoms
     if res_to_save_count >= len(all_protein_residues):
@@ -76,14 +76,16 @@ def get_protein_res_ids_to_keep(pdb_path: str, sdf_paths: List[str], crop_size: 
         res = protein_atoms[idx].GetPDBResidueInfo()
         if res.GetIsHeteroAtom():
             continue
-        base_res_id = res.GetResidueNumber()
+        base_res_id = (res.GetChainId(), res.GetResidueNumber())
         for i in range(0, int(neighborhood_size / 2)):
-            if base_res_id - i in all_protein_residues:
-                res_ids_to_keep.add(base_res_id - i)
+            res_plus_1 = (base_res_id[0], base_res_id[1] + i)
+            res_minus_1 = (base_res_id[0], base_res_id[1] - i)
+            if res_minus_1 in all_protein_residues:
+                res_ids_to_keep.add(res_minus_1)
             if len(res_ids_to_keep) >= res_to_save_count:
                 break
-            if base_res_id + i in all_protein_residues:
-                res_ids_to_keep.add(base_res_id + i)
+            if res_plus_1 in all_protein_residues:
+                res_ids_to_keep.add(res_plus_1)
     print("cropped", len(res_ids_to_keep), "residues from", len(all_protein_residues), "total residues",
           total_ligand_atoms)
 
@@ -93,13 +95,13 @@ def get_protein_res_ids_to_keep(pdb_path: str, sdf_paths: List[str], crop_size: 
 def crop_residue_ids(pdb_path: str, res_ids_to_keep: set, output_path: str):
     pdb_model = get_pdb_model(pdb_path)
 
-    chain = next(iter(pdb_model.get_chains()))
-    res_to_remove = []
-    for res in chain.get_residues():
-        if res.id[1] not in res_ids_to_keep:
-            res_to_remove.append(res)
-    for res in res_to_remove:
-        chain.detach_child(res.id)
+    for chain in pdb_model.get_chains():
+        res_to_remove = []
+        for res in chain.get_residues():
+            if (chain.id, res.id[1]) not in res_ids_to_keep:
+                res_to_remove.append(res)
+        for res in res_to_remove:
+            chain.detach_child(res.id)
 
     io = Bio.PDB.PDBIO()
     io.set_structure(pdb_model)
