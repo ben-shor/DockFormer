@@ -242,12 +242,12 @@ class DataPipeline:
 
             joined_gt_positions.extend(gt_positions)
 
-        return torch.tensor(np.array(joined_gt_positions)).float()
+        return torch.tensor(np.array(joined_gt_positions, dtype=np.float32)).float()
 
     def get_matching_positions(self, ref_ligand_path: str, gt_ligand_path: str):
         gt_positions = self._get_gt_positions(ref_ligand_path, gt_ligand_path)
 
-        return torch.tensor(np.array(gt_positions)) .float()
+        return torch.tensor(np.array(gt_positions)).float()
 
 
 def _prepare_recycles(feat: torch.Tensor, num_recycles: int) -> torch.Tensor:
