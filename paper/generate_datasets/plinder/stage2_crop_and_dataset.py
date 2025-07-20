@@ -147,8 +147,6 @@ def main():
             models_folder_name = os.path.basename(MODELS_FOLDER)
             loaded_json["input_structure"] = os.path.join(models_folder_name, system_name, f"apo_protein_cropped_{CROP_SIZE}.pdb")
             loaded_json["gt_structure"] = os.path.join(models_folder_name, system_name, f"gt_protein_cropped_{CROP_SIZE}.pdb")
-            loaded_json["gt_sdf_list"] = [os.path.join(models_folder_name, system_name, f"gt_ligand_{j}.sdf") for j in range(10)
-                                                                    if os.path.exists(os.path.join(models_folder, f"gt_ligand_{j}.sdf"))]
 
             json.dump(loaded_json, open(os.path.join(output_jsons_folder, filename), "w"), indent=4)
 

@@ -275,7 +275,8 @@ def prepare_system(row, system_folder, output_models_folder, output_jsons_folder
     json_data = {
         "input_structure": os.path.join(relative_models_folder_name, "input_protein.pdb"),
         "gt_structure": os.path.join(relative_models_folder_name, "gt_protein.pdb"),
-        "gt_sdf_list": gt_ligand_paths,
+        "gt_sdf_list": [os.path.join(relative_models_folder_name, os.path.basename(n)) for n in gt_ligand_paths],
+        "ref_sdf_list": [os.path.join(relative_models_folder_name, os.path.basename(n)) for n in ref_ligand_paths],
         "resolution": row.fillna(99)["entry_resolution"],
         "release_year": row["entry_release_date"],
         "affinity": affinity,
