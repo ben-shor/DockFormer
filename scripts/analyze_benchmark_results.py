@@ -18,12 +18,14 @@ def pretty_print_result_files(results_files: Dict[str, str]):
             "ligand_rmsd_lt5": sum(1 for i in ligand_rmsd if i < 5.0),
             "ligand_rmsd_lt10": sum(1 for i in ligand_rmsd if i < 10.0),
         }
-        gt_affinity = np.array([i["gt_affinity"] for i in data.values()])
-        all_data[name]["gt_affinity_count"] = len([i for i in gt_affinity if i and not np.isnan(i)])
+        gt_affinity = [i["gt_affinity"] for i in data.values()]
+        should_use_affinity = [1 if (i and i > 0 and not np.isnan(i)) else 0 for i in gt_affinity]
+        gt_affinity = np.array([i for i, j in zip(gt_affinity, should_use_affinity) if j == 1])
+        all_data[name]["gt_affinity_count"] = sum(should_use_affinity)
         if all_data[name]["gt_affinity_count"] > 0:
             for predicted_aff_name in ["affinity_2d", "affinity_cls"]:
-                predicted_aff = [i[predicted_aff_name] for i, gt_aff in zip(data.values(), gt_affinity)
-                                 if gt_aff is not None]
+                predicted_aff = [i[predicted_aff_name] for i, gt_aff in zip(data.values(), should_use_affinity)
+                                 if gt_aff]
                 predicted_aff = np.array(predicted_aff)
 
                 all_data[name][f"{predicted_aff_name}_pearson"], _ = pearsonr(gt_affinity, predicted_aff)
