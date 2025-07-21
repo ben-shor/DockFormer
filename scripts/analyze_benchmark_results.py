@@ -19,7 +19,7 @@ def pretty_print_result_files(results_files: Dict[str, str]):
             "ligand_rmsd_lt10": sum(1 for i in ligand_rmsd if i < 10.0),
         }
         gt_affinity = np.array([i["gt_affinity"] for i in data.values()])
-        all_data[name]["gt_affinity_count"] = len([i for i in gt_affinity if i])
+        all_data[name]["gt_affinity_count"] = len([i for i in gt_affinity if i and not np.isnan(i)])
         if all_data[name]["gt_affinity_count"] > 0:
             for predicted_aff_name in ["affinity_2d", "affinity_cls"]:
                 predicted_aff = [i[predicted_aff_name] for i, gt_aff in zip(data.values(), gt_affinity)
