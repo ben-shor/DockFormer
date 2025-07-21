@@ -18,6 +18,7 @@ def pretty_print_result_files(results_files: Dict[str, str]):
             "ligand_rmsd_lt5": sum(1 for i in ligand_rmsd if i < 5.0),
             "ligand_rmsd_lt10": sum(1 for i in ligand_rmsd if i < 10.0),
         }
+        all_data[name]["inter_contacts_auc"] = np.mean([i["inter_contacts_auc"] for i in data.values()])
         gt_affinity = [i["gt_affinity"] for i in data.values()]
         should_use_affinity = [1 if (i and i > 0 and not np.isnan(i)) else 0 for i in gt_affinity]
         gt_affinity = np.array([i for i, j in zip(gt_affinity, should_use_affinity) if j == 1])
