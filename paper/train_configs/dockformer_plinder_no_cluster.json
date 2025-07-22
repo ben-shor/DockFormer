@@ -1,7 +1,7 @@
 {
     "stage": "initial_training",
     "wandb_project_name": "DockFormer",
-    "train_output_dir": "data/train_runs/dockformer_plinder",
+    "train_output_dir": "data/train_runs/dockformer_plinder_no_cluster",
     "train_input_file": "data/plinder/processed/no_clusters_train_cs256.json",
     "val_input_file": "data/plinder/processed/clusters_validation_cs256.json",
     "check_val_every_n_epoch": 1,

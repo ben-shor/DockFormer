@@ -146,10 +146,10 @@ def main():
                 status_dict["missing"].append(system_name)
                 continue
 
-            # res_ids_to_keep = get_protein_res_ids_to_keep(gt_pdb_path, ligand_paths, CROP_SIZE)
-            #
-            # crop_residue_ids(gt_pdb_path, res_ids_to_keep, cropped_gt_pdb_path)
-            # crop_residue_ids(apo_pdb_path, res_ids_to_keep, cropped_apo_pdb_path)
+            res_ids_to_keep = get_protein_res_ids_to_keep(gt_pdb_path, ligand_paths, CROP_SIZE)
+
+            crop_residue_ids(gt_pdb_path, res_ids_to_keep, cropped_gt_pdb_path)
+            crop_residue_ids(apo_pdb_path, res_ids_to_keep, cropped_apo_pdb_path)
 
             loaded_json = json.load(open(json_path, "r"))
             models_folder_name = os.path.basename(MODELS_FOLDER)
