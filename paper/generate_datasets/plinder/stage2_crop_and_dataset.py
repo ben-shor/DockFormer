@@ -28,6 +28,7 @@ OUTPUT_VALIDATION_JSONS_FOLDER = os.path.join(BASE_OUTPUT_FOLDER, f"jsons_valida
 OUTPUT_TEST_JSONS_FOLDER = os.path.join(BASE_OUTPUT_FOLDER, f"jsons_test_cs{CROP_SIZE}")
 
 TRAIN_CLUSTERS_DATASET_FILE = os.path.join(BASE_OUTPUT_FOLDER, f"clusters_train_cs{CROP_SIZE}.json")
+TRAIN_NO_CLUSTERS_DATASET_FILE = os.path.join(BASE_OUTPUT_FOLDER, f"no_clusters_train_cs{CROP_SIZE}.json")
 VALIDATION_CLUSTERS_DATASET_FILE = os.path.join(BASE_OUTPUT_FOLDER, f"clusters_validation_cs{CROP_SIZE}.json")
 
 
@@ -108,12 +109,17 @@ def crop_residue_ids(pdb_path: str, res_ids_to_keep: set, output_path: str):
     io.save(output_path)
 
 
+def save_list_as_clusters(paths_to_write: list, output_path: str):
+    data_to_write = {f"c{i:05}": [p] for i, p in enumerate(paths_to_write)}
+    json.dump(data_to_write, open(output_path, "w"))
+
+
 def main():
     status_dict = defaultdict(list)
 
-    for jsons_folder, output_jsons_folder, output_file_path in [
-        (TRAIN_JSONS_FOLDER, OUTPUT_TRAIN_JSONS_FOLDER, TRAIN_CLUSTERS_DATASET_FILE),
-        (VALIDATION_JSONS_FOLDER, OUTPUT_VALIDATION_JSONS_FOLDER, VALIDATION_CLUSTERS_DATASET_FILE)
+    for jsons_folder, output_jsons_folder, output_file_path, output_no_clusters_path in [
+        (TRAIN_JSONS_FOLDER, OUTPUT_TRAIN_JSONS_FOLDER, TRAIN_CLUSTERS_DATASET_FILE, TRAIN_NO_CLUSTERS_DATASET_FILE),
+        (VALIDATION_JSONS_FOLDER, OUTPUT_VALIDATION_JSONS_FOLDER, VALIDATION_CLUSTERS_DATASET_FILE, None)
     ]:
         cluster_to_jsons = defaultdict(list)
         os.makedirs(output_jsons_folder, exist_ok=True)
@@ -140,10 +146,10 @@ def main():
                 status_dict["missing"].append(system_name)
                 continue
 
-            res_ids_to_keep = get_protein_res_ids_to_keep(gt_pdb_path, ligand_paths, CROP_SIZE)
-
-            crop_residue_ids(gt_pdb_path, res_ids_to_keep, cropped_gt_pdb_path)
-            crop_residue_ids(apo_pdb_path, res_ids_to_keep, cropped_apo_pdb_path)
+            # res_ids_to_keep = get_protein_res_ids_to_keep(gt_pdb_path, ligand_paths, CROP_SIZE)
+            #
+            # crop_residue_ids(gt_pdb_path, res_ids_to_keep, cropped_gt_pdb_path)
+            # crop_residue_ids(apo_pdb_path, res_ids_to_keep, cropped_apo_pdb_path)
 
             loaded_json = json.load(open(json_path, "r"))
             models_folder_name = os.path.basename(MODELS_FOLDER)
@@ -158,6 +164,10 @@ def main():
             status_dict["cropped"].append(system_name)
         # Save clusters dataset
         json.dump(cluster_to_jsons, open(output_file_path, "w"), indent=4)
+
+        if output_no_clusters_path:
+            data_to_write = {f"c{i:05}": [p] for i, p in enumerate(sum(cluster_to_jsons.values(), []))}
+            json.dump(data_to_write, open(output_no_clusters_path, "w"), indent=4)
 
     print(status_dict)
     print("counts", {k: len(v) for k, v in status_dict.items()})
