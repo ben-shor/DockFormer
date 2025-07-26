@@ -224,10 +224,8 @@ def prepare_system(row, system_folder, output_models_folder, output_jsons_folder
 
     gt_output_path = os.path.join(output_models_folder, f"gt_protein.pdb")
     tmp_gt_pdb_path = os.path.join(output_models_folder, f"tmp_gt_protein.pdb")
-    gt_pocket_output_path = os.path.join(output_models_folder, f"gt_pocket.pdb")
     protein_input_path = os.path.join(output_models_folder, f"input_protein.pdb")
     tmp_input_path = os.path.join(output_models_folder, f"tmp_input_protein.pdb")
-    pocket_input_path = os.path.join(output_models_folder, f"input_pocket.pdb")
     gt_ligand_paths = []
     ref_ligand_paths = []
 
